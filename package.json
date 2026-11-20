@@ -1,0 +1,26 @@
+{
+  "name": "zhiye",
+  "version": "0.50.14",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "workspaces": ["apps/desktop", "packages/*"],
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "npm run test --workspace @zhiye/desktop && npm run test:integrations && npm run test:verification",
+    "build:ui": "npm run build --workspace @zhiye/desktop",
+    "release:mac": "node scripts/macos-release.mjs",
+    "generate:contracts": "node scripts/generate-contracts.mjs",
+    "check:contracts": "node scripts/check-api-v1.mjs && node scripts/generate-contracts.mjs --check",
+    "build:integrations": "npm run check:contracts && npm run build --workspace @zhiye/sdk-ts && npm run build --workspace @zhiye/mcp",
+    "test:integrations": "npm run build:integrations && node --test scripts/check-api-v1.test.mjs packages/sdk-ts/test/client.test.mjs packages/mcp/test/stdio.test.mjs",
+    "test:api-v1": "node packages/mcp/test/live-contract.mjs",
+    "test:verification": "node --test scripts/performance/tauri-ipc.test.mjs scripts/performance/windows-results.test.mjs",
+    "dev": "npm run desktop:dev --workspace @zhiye/desktop",
+    "build": "npm run desktop:build --workspace @zhiye/desktop"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "yaml": "2.9.1"
+  }
+}
+

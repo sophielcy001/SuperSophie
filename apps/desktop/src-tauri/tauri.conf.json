@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "知页",
+  "version": "0.50.14",
+  "identifier": "org.zhiye.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "知页 · 本地知识库",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 780,
+        "minHeight": 620,
+        "dragDropEnabled": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost 'self'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data: blob:; object-src 'none'; frame-src 'none'; base-uri 'none'"
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["icons/icon.ico"],
+    "resources": {
+      "../../../LICENSE": "LICENSE",
+      "../../../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../../../licenses/Inter-OFL.txt": "licenses/Inter-OFL.txt",
+      "../../../licenses/KaTeX-Fonts-OFL.txt": "licenses/KaTeX-Fonts-OFL.txt",
+      "../../../licenses/KaTeX-MIT.txt": "licenses/KaTeX-MIT.txt",
+      "../../../licenses/PDFjs-Adobe-CMaps.txt": "licenses/PDFjs-Adobe-CMaps.txt",
+      "../../../licenses/PDFjs-Apache-2.0.txt": "licenses/PDFjs-Apache-2.0.txt",
+      "../../../licenses/PDFjs-Foxit-Fonts.txt": "licenses/PDFjs-Foxit-Fonts.txt",
+      "../../../licenses/PDFjs-Liberation-Fonts.txt": "licenses/PDFjs-Liberation-Fonts.txt",
+      "../../../licenses/Pulldown-CMark-MIT.txt": "licenses/Pulldown-CMark-MIT.txt"
+    }
+  },
+  "plugins": {
+    "deep-link": { "desktop": { "schemes": ["zhiye"] } }
+  }
+}
+
