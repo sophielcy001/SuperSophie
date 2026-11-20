@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "local-workspace-window",
+  "description": "The knowledge workspace can close its own window.",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "core:window:allow-destroy"]
+}
