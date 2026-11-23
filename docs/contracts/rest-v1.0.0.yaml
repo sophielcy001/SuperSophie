@@ -1,0 +1,1084 @@
+openapi: 3.1.0
+info:
+  title: 知页本机 API
+  version: 1.0.0
+  description: 本机稳定版 v1。启用后从桌面应用取得实际端口与工作空间 ID。客户端可忽略响应中新增加的字段。
+servers:
+  - url: 'http://127.0.0.1:{port}'
+    variables:
+      port:
+        default: '46832'
+        description: 示例值。每次启用时由系统分配实际端口。
+security:
+  - IntegrationToken: []
+x-zhiye-limits:
+  jsonBodyBytes: 1048576
+  blockOperations: 100
+  pageSize: { default: 50, maximum: 100 }
+  attachmentMiB: { default: 100, minimum: 1, maximum: 100 }
+  rateLimit: { requestsPerIntegration: 60, windowSeconds: 10 }
+  idempotencyDays: 7
+  queryCursorMinutes: 15
+  catalogCursorMinutes: 15
+  changesDays: 31
+paths:
+  /api/v1/workspaces/{workspace_id}/integration:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    get:
+      operationId: getIntegration
+      summary: 读取当前集成令牌的动作权限
+      x-scope: 'content:read'
+      responses:
+        '200':
+          description: 当前令牌的动作权限
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IntegrationPermissions' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/catalog:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    get:
+      operationId: listCatalog
+      summary: 按类型和稳定 ID 枚举可读资源
+      x-scope: 'content:read'
+      parameters:
+        - $ref: '#/components/parameters/FeedLimit'
+        - name: cursor
+          in: query
+          description: 原样传入上一页的 catalog_cursor。首次请求省略。
+          schema: { $ref: '#/components/schemas/FeedCursor' }
+      responses:
+        '200':
+          description: 资源编目及首次请求捕获的初始变更游标
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogPage' }
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/changes:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    get:
+      operationId: pollChanges
+      summary: 按授权拉取变更和可见归档墓碑
+      x-scope: 'changes:read'
+      parameters:
+        - $ref: '#/components/parameters/FeedLimit'
+        - name: cursor
+          in: query
+          required: true
+          description: 首次编目的 change_cursor 或上一页的 next_cursor。
+          schema: { $ref: '#/components/schemas/FeedCursor' }
+      responses:
+        '200':
+          description: 同轮查询的水位、可见事件、续页标记和游标
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChangePage' }
+        '409':
+          $ref: '#/components/responses/Error'
+        '410':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/proposals:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    post:
+      operationId: submitProposal
+      summary: 提交带页面修订的候选修改供本地审阅
+      x-scope: 'proposals:create'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProposalDraft' }
+      responses:
+        '201':
+          description: 已提交候选修改的收据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProposalReceipt' }
+        '412':
+          $ref: '#/components/responses/Error'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/proposals/{proposal_id}:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - name: proposal_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getProposal
+      summary: 查询本集成对仍可读页面提交的建议状态
+      x-scope: 'proposals:create'
+      responses:
+        '200':
+          description: 建议状态及接受后写入的修订
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProposalReceipt' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/search:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    post:
+      operationId: search
+      summary: 在授权范围内按关键词、类型和数据库属性检索
+      x-scope: 'content:read'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SearchRequest' }
+      responses:
+        '200':
+          description: 带匹配来源与定位路径的分页结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/QueryPage'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SearchHit' }
+                      pdf_index:
+                        type: object
+                        description: 搜索含关键词且具备 assets:read 时，返回授予的页面范围内的 PDF 索引状态。
+                        required: [pending, indexed, partial, no_text, failed]
+                        properties:
+                          pending: { type: integer, minimum: 0 }
+                          indexed: { type: integer, minimum: 0 }
+                          partial: { type: integer, minimum: 0 }
+                          no_text: { type: integer, minimum: 0 }
+                          failed: { type: integer, minimum: 0 }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/collections/{collection_id}:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Collection'
+    get:
+      operationId: getCollection
+      summary: 读取可访问数据库的属性定义
+      x-scope: 'content:read'
+      responses:
+        '200':
+          description: 数据库与稳定属性标识
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Collection' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/collections/{collection_id}/query:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Collection'
+    post:
+      operationId: queryCollection
+      summary: 使用已授权属性筛选与排序记录
+      x-scope: 'content:read'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CollectionQuery' }
+      responses:
+        '200':
+          description: 仅含当前授权的记录和属性
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/QueryPage'
+                  - type: object
+                    required: [collection_id, schema_revision]
+                    properties:
+                      collection_id: { type: string, format: uuid }
+                      schema_revision: { type: integer, minimum: 1 }
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Record' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    post:
+      operationId: createPage
+      summary: 在授权子树或数据库中创建页面或记录
+      x-scope: 'content:create'
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [title]
+              oneOf:
+                - required: [parent_id]
+                  not:
+                    anyOf:
+                      - required: [collection_id]
+                      - required: [properties]
+                - required: [collection_id]
+                  not: { required: [parent_id] }
+              properties:
+                parent_id: { type: string, format: uuid }
+                collection_id: { type: string, format: uuid }
+                title: { type: string }
+                icon: { type: string, default: file }
+                properties: { $ref: '#/components/schemas/WritableProperties' }
+      responses:
+        '201':
+          $ref: '#/components/responses/Operation'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+    get:
+      operationId: getPage
+      summary: 读取页面元数据及写入 ETag
+      x-scope: 'content:read'
+      responses:
+        '200':
+          description: 当前授权内的页面元数据
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Page' }
+        default:
+          $ref: '#/components/responses/Error'
+    patch:
+      operationId: patchPage
+      summary: 修改标题、图标或记录的普通属性
+      x-scope: 'content:update'
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/BaseRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              anyOf:
+                - required: [title]
+                - required: [icon]
+                - required: [properties]
+              properties:
+                title: { type: string }
+                icon: { type: string }
+                properties: { $ref: '#/components/schemas/WritableProperties' }
+      responses:
+        '200':
+          $ref: '#/components/responses/Operation'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+    get:
+      operationId: getPageContent
+      summary: 按相同授权表示分页读取正文块或 Markdown
+      x-scope: 'content:read'
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [blocks, markdown], default: blocks }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          description: 上一响应的 next_cursor。响应为 null 时扫描结束。
+          schema: { type: string }
+      responses:
+        '200':
+          description: 当前页的块
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/BlockContent'
+                  - $ref: '#/components/schemas/MarkdownContent'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}/backlinks:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+    get:
+      operationId: getPageBacklinks
+      summary: 列出可读页面中指向该页或其可读正文块的位置
+      x-scope: 'content:read'
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          description: 上次响应的 next_cursor。每次按当前授权读取。
+          schema: { type: string }
+      responses:
+        '200':
+          description: 按引用页和正文块标识分页的反向链接
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Backlinks' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}/references/{reference_id}:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+      - name: reference_id
+        in: path
+        required: true
+        description: 引用页中的引用块 ID
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getBlockReference
+      summary: 读取一处授权块引用的当前源块
+      x-scope: 'content:read'
+      responses:
+        '200':
+          description: 在读取事务中计算的单层源块表示
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferenceSource' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}/computed:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+    get:
+      operationId: getPageComputed
+      summary: 读取页面当前授权下的 Formula 和 Rollup 结果
+      x-scope: 'content:read'
+      responses:
+        '200':
+          description: 计算发生在同一授权读事务，结果使用独立的表示版本。
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComputedPage' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/blocks/{block_id}:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - name: block_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getBlock
+      summary: 读取授权页中可见的正文块
+      x-scope: 'content:read'
+      responses:
+        '200':
+          description: 所属页面及块
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [page_id, page_revision, page_path, block_path, block]
+                properties:
+                  page_id: { type: string, format: uuid }
+                  page_revision: { type: integer, minimum: 1 }
+                  page_path: { type: string }
+                  block_path: { type: string }
+                  page_link: { $ref: '#/components/schemas/DesktopLocation' }
+                  block_link: { $ref: '#/components/schemas/DesktopLocation' }
+                  block: { $ref: '#/components/schemas/Block' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}/block-operations:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+    post:
+      operationId: applyBlockOperations
+      summary: 在单页内原子追加、插入、更新、删除或移动正文块
+      x-scope: 'content:update'
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/BaseRevision'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [operations]
+              properties:
+                operations:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/BlockOperation' }
+      responses:
+        '200':
+          $ref: '#/components/responses/Operation'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/pages/{page_id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - $ref: '#/components/parameters/Page'
+    post:
+      operationId: archivePage
+      summary: 将整个可读页面分支移入回收站
+      x-scope: 'content:archive'
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/BaseRevision'
+      responses:
+        '200':
+          $ref: '#/components/responses/Operation'
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/assets:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+    post:
+      operationId: uploadAsset
+      summary: 上传原件并关联至目标页面
+      x-scope: 'assets:write content:update'
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - name: X-Zhiye-Page-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Zhiye-File-Name
+          in: header
+          required: true
+          description: 百分号编码的 UTF-8 文件名。
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '201':
+          description: 附件及关联页面新版本的收据
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UploadReceipt' }
+        default:
+          $ref: '#/components/responses/Error'
+  /api/v1/workspaces/{workspace_id}/assets/{asset_id}/content:
+    parameters:
+      - $ref: '#/components/parameters/Workspace'
+      - name: asset_id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: downloadAsset
+      summary: 下载授权页面所属的附件原件
+      x-scope: 'assets:read'
+      responses:
+        '200':
+          description: 已校验的附件原件。传输期间授权失效时连接会提前结束。
+          headers:
+            Content-Length: { required: true, schema: { type: integer, minimum: 0 } }
+            Content-Disposition: { required: true, schema: { type: string, const: attachment } }
+          content:
+            application/octet-stream: {}
+        default:
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    IntegrationToken:
+      type: http
+      scheme: bearer
+      description: 从桌面应用的集成设置创建，仅对授予的工作空间有效。
+  parameters:
+    FeedLimit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    Workspace:
+      name: workspace_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Collection:
+      name: collection_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[!-~]+$' }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: 完整复制同一集成读取目标页时收到的 ETag，包括引号。
+      schema: { type: string }
+    BaseRevision:
+      name: X-Zhiye-Base-Revision
+      in: header
+      description: 可同时提交读取 ETag 时的页面修订。服务端在首次写入时检查两者，重放时沿用原值。
+      schema: { type: integer, minimum: 1, maximum: 4294967295 }
+  headers:
+    ETag:
+      description: 与页面修订、集成和当前授权下的内容关联。
+      required: true
+      schema: { type: string }
+  responses:
+    Operation:
+      description: 提交结果或同一幂等请求的原始结果
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Operation' }
+    Error:
+      description: 请求未成功，应用错误代码对应本文档旁的接入指南。
+      headers:
+        WWW-Authenticate:
+          description: HTTP 401 返回 Bearer 认证提示。
+          schema: { type: string, const: Bearer }
+        Retry-After:
+          description: HTTP 429 返回此值，单位为秒。
+          schema: { type: integer, minimum: 1 }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    DesktopLocation:
+      type: string
+      format: uri
+      description: 由知页桌面应用接收的稳定页面、正文块或 PDF 原件页码定位链接。
+      pattern: '^zhiye://open/workspaces/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/pages/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}(/blocks/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}|/attachments/[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}/pdf/[0-9a-f]{64}/[1-9][0-9]{0,9})?$'
+    IntegrationPermissions:
+      type: object
+      required: [scopes]
+      properties:
+        scopes:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: ['content:read', 'content:create', 'content:update', 'content:archive', 'assets:read', 'assets:write', 'changes:read', 'proposals:create']
+    FeedCursor:
+      type: string
+      description: 服务生成的不透明游标。客户端原样保存和续传。
+    CatalogPage:
+      type: object
+      required: [items, catalog_cursor, change_cursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CatalogItem' }
+        catalog_cursor:
+          description: 最后一页为 null。
+          type: [string, 'null']
+        change_cursor:
+          description: 首次请求返回的变更窗口起点。继续编目时为 null。
+          type: [string, 'null']
+    CatalogItem:
+      oneOf:
+        - type: object
+          required: [kind, id, revision, title, parent_id]
+          properties:
+            kind: { const: page }
+            id: { type: string, format: uuid }
+            revision: { type: integer, minimum: 1 }
+            title: { type: string }
+            parent_id: { type: [string, 'null'], format: uuid }
+        - type: object
+          required: [kind, id, revision, title, container_page_id, schema_revision]
+          properties:
+            kind: { const: collection }
+            id: { type: string, format: uuid }
+            revision: { type: integer, minimum: 1 }
+            title: { type: string }
+            container_page_id: { type: string, format: uuid }
+            schema_revision: { type: integer, minimum: 1 }
+        - type: object
+          required: [kind, id, revision, name, page_id, bytes, media_type]
+          properties:
+            kind: { const: asset }
+            id: { type: string, format: uuid }
+            revision: { type: integer, minimum: 1 }
+            name: { type: string }
+            page_id: { type: string, format: uuid }
+            bytes: { type: integer, minimum: 0 }
+            media_type: { type: string }
+    ChangePage:
+      type: object
+      required: [items, watermark, next_cursor, has_more]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ChangeEvent' }
+        watermark: { type: string, description: 在同一轮分页内固定的不透明水位标识。 }
+        next_cursor: { $ref: '#/components/schemas/FeedCursor' }
+        has_more: { type: boolean }
+    ChangeEvent:
+      type: object
+      required: [event_id, kind, id, revision, action]
+      properties:
+        event_id: { type: string, pattern: '^[a-f0-9]{32}$' }
+        kind: { type: string, enum: [page, collection, asset] }
+        id: { type: string, format: uuid }
+        revision:
+          type: integer
+          minimum: 1
+          description: 对象原始修订。同一页面的派生失效可以共享原始修订，用 event_id 去重。
+        action: { type: string, enum: [upsert, delete, derived.invalidated] }
+      allOf:
+        - if:
+            properties:
+              action: { const: derived.invalidated }
+          then:
+            properties:
+              kind: { const: page }
+    ProposalDraft:
+      type: object
+      additionalProperties: false
+      required: [page_id, base_revision, changes]
+      properties:
+        page_id: { type: string, format: uuid }
+        base_revision: { type: integer, minimum: 1 }
+        changes:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            title: { type: string }
+            icon: { type: string }
+            properties: { $ref: '#/components/schemas/WritableProperties' }
+            operations:
+              type: array
+              maxItems: 100
+              items: { $ref: '#/components/schemas/BlockOperation' }
+    ProposalReceipt:
+      type: object
+      required: [id, page_id, base_revision, status, created_at, expires_at, accepted_revision]
+      properties:
+        id: { type: string, format: uuid }
+        page_id: { type: string, format: uuid }
+        base_revision: { type: integer, minimum: 1 }
+        status: { type: string, enum: [pending, conflict, accepted, rejected, expired] }
+        created_at: { type: integer, description: 自 Unix 纪元起的毫秒数 }
+        expires_at: { type: integer, description: 自 Unix 纪元起的毫秒数 }
+        accepted_revision: { type: [integer, 'null'], minimum: 1 }
+    Page:
+      type: object
+      required: [id, page_path, parent_id, title, icon, page_revision, updated_at, schema_revision, properties, properties_restricted]
+      properties:
+        id: { type: string, format: uuid }
+        parent_id: { type: [string, 'null'], format: uuid }
+        page_path: { type: string }
+        page_link: { $ref: '#/components/schemas/DesktopLocation' }
+        schema_revision: { type: [integer, 'null'], minimum: 1 }
+        title: { type: string }
+        icon: { type: string }
+        page_revision: { type: integer, minimum: 1 }
+        updated_at: { type: integer, description: 自 Unix 纪元起的毫秒数 }
+        properties: { type: [object, 'null'] }
+        properties_restricted: { type: boolean }
+        restricted_property_ids: { $ref: '#/components/schemas/RestrictedPropertyIds' }
+    Block:
+      type: object
+      description: 版本化的正文块。折叠、提示、公式、目录和附件块的 payload 形状见 BlockDraft。受限附件使用 restricted 占位。
+      required: [id, type, schema_version, payload, children]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string }
+        schema_version: { type: integer, minimum: 1 }
+        payload: { type: object }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/Block' }
+        restricted: { type: boolean, default: false }
+    Backlinks:
+      type: object
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [page_id, block_id, title, icon, target_kind]
+            properties:
+              page_id: { type: string, format: uuid }
+              block_id: { type: string, format: uuid }
+              title: { type: string }
+              icon: { type: string }
+              target_kind: { type: string, enum: [page, block] }
+        next_cursor: { type: [string, 'null'] }
+    ReferenceSource:
+      type: object
+      required: [page_id, title, block, representation_version, computed_at, stale]
+      properties:
+        page_id: { type: string, format: uuid }
+        title: { type: string }
+        block: { $ref: '#/components/schemas/Block' }
+        representation_version: { type: string, pattern: '^[0-9a-f]{64}$' }
+        computed_at: { type: integer, description: 读取时的 Unix 毫秒数 }
+        stale: { type: boolean, const: false, description: 当前源块在同一读取事务内投影 }
+    Operation:
+      type: object
+      required: [operation_id, page_id, revision, created_block_ids, source]
+      properties:
+        operation_id: { type: string, format: uuid }
+        page_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 1 }
+        created_block_ids:
+          type: array
+          items: { type: string, format: uuid }
+        source: { $ref: '#/components/schemas/IntegrationSource' }
+    Filter:
+      type: object
+      additionalProperties: false
+      required: [field_id, operator]
+      properties:
+        field_id: { type: string, description: 属性 ID 或特殊值 title }
+        operator: { type: string, enum: [equal, contains, empty, notEmpty] }
+        value: { type: [string, number, boolean, 'null'] }
+    SearchRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        query: { type: string, maxLength: 200 }
+        kind: { type: string, enum: [page, collection, record] }
+        collection_id: { type: string, format: uuid }
+        filters:
+          type: array
+          maxItems: 48
+          items: { $ref: '#/components/schemas/Filter' }
+        limit: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        cursor: { type: string }
+    CollectionQuery:
+      type: object
+      additionalProperties: false
+      properties:
+        filters:
+          type: array
+          maxItems: 48
+          items: { $ref: '#/components/schemas/Filter' }
+        sort:
+          type: object
+          required: [field_id, direction]
+          additionalProperties: false
+          properties:
+            field_id: { type: string }
+            direction: { type: string, enum: [asc, desc] }
+        limit: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        cursor: { type: string }
+    QueryPage:
+      type: object
+      required: [items, snapshot_revision, next_cursor]
+      properties:
+        items: { type: array }
+        snapshot_revision: { type: string, description: 不透明的当前查询快照标识 }
+        next_cursor: { type: [string, 'null'] }
+    SearchHit:
+      type: object
+      required: [page_id, title, kind, page_revision, collection_id, block_id, source, snippet, page_path, block_path]
+      properties:
+        page_id: { type: string, format: uuid }
+        title: { type: string }
+        kind: { type: string, enum: [page, collection, record] }
+        page_revision: { type: integer, minimum: 1 }
+        collection_id: { type: [string, 'null'], format: uuid }
+        block_id: { type: [string, 'null'], format: uuid }
+        source: { type: string, enum: [title, block, metadata, pdf] }
+        snippet:
+          type: [object, 'null']
+          required: [before, matched, after]
+          properties:
+            before: { type: string }
+            matched: { type: string }
+            after: { type: string }
+        page_path: { type: string }
+        block_path: { type: [string, 'null'] }
+        page_link: { $ref: '#/components/schemas/DesktopLocation' }
+        block_link:
+          anyOf:
+            - { $ref: '#/components/schemas/DesktopLocation' }
+            - { type: 'null' }
+        pdf:
+          type: object
+          description: 当 source 为 pdf 时提供。需要 assets:read 及附件所在页面的读取权限。
+          required: [attachment_id, sha256, page_number, name, link, content_path]
+          properties:
+            attachment_id: { type: string, format: uuid }
+            sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+            page_number: { type: integer, minimum: 1, maximum: 4294967295 }
+            name: { type: string }
+            link: { $ref: '#/components/schemas/DesktopLocation' }
+            content_path: { type: string }
+    Collection:
+      type: object
+      required: [id, container_page_id, schema_revision, properties]
+      properties:
+        id: { type: string, format: uuid }
+        container_page_id: { type: string, format: uuid }
+        schema_revision: { type: integer, minimum: 1 }
+        properties:
+          type: array
+          items:
+            type: object
+            required: [id, name, type, options]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              type:
+                type: string
+                enum: [text, number, checkbox, date, dateTime, status, select, multiSelect, url, attachment, relation, rollup, formula, createdAt, updatedAt]
+                description: date 是 YYYY-MM-DD 全天日期。dateTime 是带明确偏移且精确到秒的 RFC 3339 时间。
+              relation:
+                type: object
+                description: 目标数据库可读时返回。
+                required: [collectionId, inversePropertyId]
+                properties:
+                  collectionId: { type: string, format: uuid }
+                  inversePropertyId: { type: [string, 'null'], format: uuid }
+              calculation:
+                $ref: '#/components/schemas/Calculation'
+              options:
+                type: array
+                items:
+                  type: object
+                  required: [id, name]
+                  properties:
+                    id: { type: string, format: uuid }
+                    name: { type: string }
+    Calculation:
+      description: 属性的计算规则。目标数据库不可读时省略 Rollup 规则。
+      oneOf:
+        - type: object
+          required: [type, expression]
+          properties:
+            type: { const: formula }
+            expression:
+              type: string
+              description: prop 的参数为稳定的属性 ID，标题使用 title。
+        - type: object
+          required: [type, relationPropertyId, function, targetPropertyId]
+          properties:
+            type: { const: rollup }
+            relationPropertyId: { type: string, format: uuid }
+            function: { enum: [count, sum, min, max, average] }
+            targetPropertyId: { type: [string, 'null'], format: uuid }
+    ComputedPage:
+      type: object
+      required: [page_id, page_revision, representation_version, computed_at, stale, properties]
+      properties:
+        page_id: { type: string, format: uuid }
+        page_revision: { type: integer, minimum: 1 }
+        representation_version:
+          type: string
+          description: 由原始页修订、读取主体可见的计算输入和规则及待计算状态得出的不透明版本。
+        computed_at: { type: integer, description: 上次有效结果的计算时间，使用 Unix 毫秒。 }
+        stale: { type: boolean, description: 为 true 时可见输入已发生变化且重新计算仍在等待。 }
+        properties:
+          type: object
+          description: 按属性 ID 列出当前授权结果。待计算时为空对象。
+          additionalProperties: { $ref: '#/components/schemas/ComputedValue' }
+    ComputedValue:
+      oneOf:
+        - type: object
+          required: [status, value]
+          properties:
+            status: { const: value }
+            value: { type: [string, number, boolean, 'null'] }
+        - type: object
+          required: [status, code]
+          properties:
+            status: { const: error }
+            code: { enum: [CYCLE, LIMIT_EXCEEDED, RESTRICTED, TYPE_ERROR, DIVISION_BY_ZERO, OUT_OF_RANGE, INVALID_DATE] }
+    Record:
+      type: object
+      required: [page_id, title, page_revision, created_at, updated_at, properties, properties_restricted]
+      properties:
+        page_id: { type: string, format: uuid }
+        title: { type: string }
+        page_revision: { type: integer, minimum: 1 }
+        created_at: { type: integer }
+        updated_at: { type: integer }
+        properties: { type: object }
+        properties_restricted: { type: boolean }
+        restricted_property_ids: { $ref: '#/components/schemas/RestrictedPropertyIds' }
+    RestrictedPropertyIds:
+      type: array
+      description: 含未显示成员的关联属性 ID。
+      items: { type: string, format: uuid }
+    WritableProperties:
+      type: object
+      description: 以稳定属性 ID 为键。普通属性可用 null 清除，关联属性使用逐项增删，未提交的属性保持原值。
+      additionalProperties:
+        oneOf:
+          - { type: [string, number, boolean, 'null'] }
+          - type: array
+            items: { type: string }
+          - $ref: '#/components/schemas/RelationDelta'
+    RelationDelta:
+      type: object
+      additionalProperties: false
+      properties:
+        add:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+        remove:
+          type: array
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    BlockContent:
+      type: object
+      required: [format, page_id, page_revision, blocks, next_cursor]
+      properties:
+        format: { type: string, const: blocks }
+        page_id: { type: string, format: uuid }
+        page_revision: { type: integer, minimum: 1 }
+        blocks:
+          type: array
+          items: { $ref: '#/components/schemas/Block' }
+        next_cursor: { type: [string, 'null'] }
+    MarkdownContent:
+      type: object
+      required: [format, page_id, page_revision, markdown, losses, next_cursor]
+      properties:
+        format: { type: string, const: markdown }
+        page_id: { type: string, format: uuid }
+        page_revision: { type: integer, minimum: 1 }
+        markdown: { type: string }
+        losses:
+          type: array
+          items: { type: string, enum: [restricted_content, markdown_approximation] }
+        next_cursor: { type: [string, 'null'] }
+    BlockDraft:
+      type: object
+      additionalProperties: false
+      required: [type, payload]
+      properties:
+        type:
+          type: string
+          enum: [paragraph, heading, codeBlock, horizontalRule, blockquote, bulletList, orderedList, listItem, taskList, taskItem, table, tableRow, tableCell, tableHeader, attachmentImage, attachmentFile, toggleBlock, callout, mathBlock, tableOfContents, blockReference]
+        payload:
+          type: object
+          description: >-
+            段落可用 text 提交纯文本。块引用提交同一工作空间的 pageId 和 blockId。
+            toggleBlock 提交 title 和布尔值 collapsed。callout 提交 tone（note、tip 或 warning）。
+            以上两种容器至少含一个子块。mathBlock 提交 latex，最多 4,096 UTF-8 字节。
+            tableOfContents 使用空对象。attachmentFile 使用同页原件的 attachmentId UUID，需 assets:read。
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/BlockDraft' }
+    BlockOperation:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [op, block]
+          properties:
+            op: { const: append }
+            parent_block_id: { type: [string, 'null'], format: uuid }
+            block: { $ref: '#/components/schemas/BlockDraft' }
+        - type: object
+          additionalProperties: false
+          required: [op, index, block]
+          properties:
+            op: { const: insert }
+            parent_block_id: { type: [string, 'null'], format: uuid }
+            index: { type: integer, minimum: 0 }
+            block: { $ref: '#/components/schemas/BlockDraft' }
+        - type: object
+          additionalProperties: false
+          required: [op, block_id, block]
+          properties:
+            op: { const: update }
+            block_id: { type: string, format: uuid }
+            block: { $ref: '#/components/schemas/BlockDraft' }
+        - type: object
+          additionalProperties: false
+          required: [op, block_id]
+          properties:
+            op: { const: delete }
+            block_id: { type: string, format: uuid }
+        - type: object
+          additionalProperties: false
+          required: [op, block_id, index]
+          properties:
+            op: { const: move }
+            block_id: { type: string, format: uuid }
+            parent_block_id: { type: [string, 'null'], format: uuid }
+            index: { type: integer, minimum: 0, description: 先取出被移动块后，在目标同级块中的零基位置 }
+    UploadReceipt:
+      type: object
+      required: [operation_id, asset_id, page_id, revision, source, name, bytes, sha256, media_type]
+      properties:
+        operation_id: { type: string, format: uuid }
+        asset_id: { type: string, format: uuid }
+        page_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 1 }
+        source: { $ref: '#/components/schemas/IntegrationSource' }
+        name: { type: string }
+        bytes: { type: integer, minimum: 0 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        media_type: { type: string }
+    IntegrationSource:
+      type: object
+      required: [type, id]
+      properties:
+        type: { type: string, const: integration }
+        id: { type: string, format: uuid }
+    Error:
+      type: object
+      required: [code, message, request_id, retryable, details]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        request_id: { type: string, format: uuid }
+        retryable: { type: boolean }
+        details: { type: ['null', object] }

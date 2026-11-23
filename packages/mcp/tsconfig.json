@@ -1,0 +1,9 @@
+{
+  "extends": "../sdk-ts/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

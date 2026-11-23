@@ -1,0 +1,35 @@
+{
+  "draft": {
+    "title": "合成阅读笔记",
+    "blocks": [
+      {
+        "id": "29370447-d7a4-4a62-b328-076001422b35",
+        "type": "paragraph",
+        "schemaVersion": 1,
+        "payload": {
+          "inline": [
+            {"type": "text", "text": "初始正文", "marks": [{"type": "bold"}]}
+          ]
+        },
+        "children": []
+      },
+      {
+        "id": "d35a90f4-ced8-4d7d-990e-87a7d61b1bf3",
+        "type": "callout",
+        "schemaVersion": 1,
+        "payload": {"tone": "tip"},
+        "children": [
+          {
+            "id": "c420e73d-f426-4462-b821-b0898771963b",
+            "type": "futureNumber",
+            "schemaVersion": 2,
+            "payload": {},
+            "children": [],
+            "$zhiyeOpaque": "{\"id\":\"c420e73d-f426-4462-b821-b0898771963b\",\"type\":\"futureNumber\",\"schemaVersion\":2,\"payload\":{\"value\":9007199254740993},\"children\":[{\"id\":\"5406ec8f-0cfc-46bc-b950-c0200ee346ed\",\"type\":\"paragraph\",\"schemaVersion\":1,\"payload\":{\"inline\":[{\"text\":\"未知块内的正文\",\"type\":\"text\"}]},\"children\":[]}],\"extensionMetadata\":{\"label\":\"保留此扩展字段\"}}"
+          }
+        ]
+      }
+    ]
+  },
+  "editedText": "编校后的正文"
+}
