@@ -129,39 +129,65 @@ function Invoke-DesktopInstaller {
     }
 }
 
-if (-not (Get-Command cargo.exe -ErrorAction SilentlyContinue)) {
-    $localToolchain = Join-Path $env:LOCALAPPDATA 'ZhiyeDevToolchain'
-    $localBin = Join-Path $localToolchain 'cargo\bin'
-    if (-not (Test-Path -LiteralPath (Join-Path $localBin 'cargo.exe'))) {
-        throw '请先按 README 安装 Rust MSVC 工具链。'
+$createdDrive = $null
+$locationPushed = $false
+try {
+    # cmd.exe and npm workspaces need a native drive path on Windows.
+    if ($project -match '^\\\\[^\\]+\\[^\\]+') {
+        $share = $Matches[0]
+        $nativeRoots = @([IO.DriveInfo]::GetDrives() | ForEach-Object Name)
+        $drives = @(Get-PSDrive -PSProvider FileSystem)
+        $drive = $drives | Where-Object {
+            $_.DisplayRoot -and $nativeRoots -contains "$($_.Name):\" -and
+                "$project\".StartsWith(($_.DisplayRoot.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase)
+        } | Sort-Object { $_.DisplayRoot.Length } -Descending | Select-Object -First 1
+        if ($drive) {
+            $remoteRoot = $drive.DisplayRoot.TrimEnd('\')
+        } else {
+            $used = @($nativeRoots | ForEach-Object { $_.Substring(0, 1) }) + @($drives.Name)
+            $name = 90..68 | ForEach-Object { [string][char]$_ } |
+                Where-Object { $_ -notin $used } | Select-Object -First 1
+            if (!$name) { throw '没有可用于共享项目的 Windows 盘符。' }
+            $drive = New-PSDrive -Name $name -PSProvider FileSystem -Root $share -Persist -Scope Script
+            $createdDrive = $drive.Name
+            $remoteRoot = $share
+        }
+        $project = '{0}:\{1}' -f $drive.Name, $project.Substring($remoteRoot.Length).TrimStart('\')
     }
-    if (-not $env:CARGO_HOME) {
-        $env:CARGO_HOME = Join-Path $localToolchain 'cargo'
-    }
-    if (-not $env:RUSTUP_HOME) {
-        $env:RUSTUP_HOME = Join-Path $localToolchain 'rustup'
-    }
-    $env:Path = "$localBin;$env:Path"
-}
+    Push-Location -LiteralPath $project
+    $locationPushed = $true
 
-# Some Cargo build scripts need the MSVC linker even when launched in a plain shell.
-if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
-    $finder = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    if (-not (Test-Path -LiteralPath $finder)) { throw '未找到 Visual Studio C++ 构建工具。' }
-    $install = & $finder -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-    if (-not $install) { throw '未找到 Visual Studio C++ 构建工具。' }
-    $environmentScript = Join-Path $install 'VC\Auxiliary\Build\vcvars64.bat'
-    $variables = cmd.exe /d /c "`"$environmentScript`" >nul && set"
-    if ($LASTEXITCODE -ne 0) { throw '初始化 MSVC 环境失败。' }
-    foreach ($line in $variables) {
-        if ($line -match '^([^=]+)=(.*)$') {
-            [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+    if (-not (Get-Command cargo.exe -ErrorAction SilentlyContinue)) {
+        $localToolchain = Join-Path $env:LOCALAPPDATA 'ZhiyeDevToolchain'
+        $localBin = Join-Path $localToolchain 'cargo\bin'
+        if (-not (Test-Path -LiteralPath (Join-Path $localBin 'cargo.exe'))) {
+            throw '请先按 README 安装 Rust MSVC 工具链。'
+        }
+        if (-not $env:CARGO_HOME) {
+            $env:CARGO_HOME = Join-Path $localToolchain 'cargo'
+        }
+        if (-not $env:RUSTUP_HOME) {
+            $env:RUSTUP_HOME = Join-Path $localToolchain 'rustup'
+        }
+        $env:Path = "$localBin;$env:Path"
+    }
+
+    # Some Cargo build scripts need the MSVC linker even when launched in a plain shell.
+    if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+        $finder = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (-not (Test-Path -LiteralPath $finder)) { throw '未找到 Visual Studio C++ 构建工具。' }
+        $install = & $finder -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if (-not $install) { throw '未找到 Visual Studio C++ 构建工具。' }
+        $environmentScript = Join-Path $install 'VC\Auxiliary\Build\vcvars64.bat'
+        $variables = cmd.exe /d /c "`"$environmentScript`" >nul && set"
+        if ($LASTEXITCODE -ne 0) { throw '初始化 MSVC 环境失败。' }
+        foreach ($line in $variables) {
+            if ($line -match '^([^=]+)=(.*)$') {
+                [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process')
+            }
         }
     }
-}
 
-Push-Location -LiteralPath $project
-try {
     switch ($Action) {
         'test-core' { & cargo.exe test --locked -p zhiye-core }
         'fetch' { & cargo.exe fetch --locked --target x86_64-pc-windows-msvc }
@@ -218,5 +244,6 @@ try {
     }
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
-    Pop-Location
+    if ($locationPushed) { Pop-Location }
+    if ($createdDrive) { Remove-PSDrive -Name $createdDrive -Scope Script }
 }

@@ -139,7 +139,15 @@ impl CollectionIds {
             *field = self.field_id(field)?;
         }
         match &mut view.layout {
-            Some(ViewLayout::Calendar { date_field }) => *date_field = self.field_id(date_field)?,
+            Some(ViewLayout::Calendar {
+                date_field,
+                end_field,
+            }) => {
+                *date_field = self.field_id(date_field)?;
+                if let Some(end) = end_field {
+                    *end = self.field_id(end)?;
+                }
+            }
             Some(ViewLayout::Gallery {
                 cover_field: Some(field),
             }) => *field = self.field_id(field)?,

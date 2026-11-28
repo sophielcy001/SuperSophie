@@ -10,4 +10,5 @@ apps/desktop/src-tauri/gen/
 *.zhiye.json
 *.zhiye.zip
 *.log
-
+deploy/sync/secrets/
+deploy/sync/.env

@@ -48,8 +48,9 @@ export const scheduleKind = (kind: ViewKind | undefined) => kind === 'calendar' 
 
 export function scheduleFields(view: CollectionView | undefined, properties: PropertyDefinition[]) {
   if (view?.layout?.type === 'calendar') {
-    const id = view.layout.dateField;
-    return { start: properties.find((field) => field.id === id) };
+    const { dateField: id, endField } = view.layout;
+    return { start: properties.find((field) => field.id === id),
+      end: endField ? properties.find((field) => field.id === endField) : undefined };
   }
   if (view?.layout?.type === 'timeline') {
     const { startField, endField } = view.layout;
@@ -87,9 +88,12 @@ export function useSchedule(view: CollectionView | undefined, properties: Proper
   const timed = fields.start?.type === 'dateTime';
   const currentDay = today(timed);
   const key = (view?.id ?? '') + '/' + (view?.revision ?? '');
-  const nav = state?.key === key ? state : {
-    key, day: currentDay, zoom: view?.layout?.type === 'timeline' ? view.layout.zoom : 'fortnight' as const,
-    unscheduled: false,
+  const zoom = view?.layout?.type === 'timeline' ? view.layout.zoom : 'fortnight' as const;
+  // A saved change to the same view, such as the end property a calendar adds when an edge is
+  // first dragged, keeps the month or range in sight.
+  const sameView = state?.key.split('/')[0] === (view?.id ?? '');
+  const nav = state?.key === key ? state : sameView && state ? { ...state, key, zoom } : {
+    key, day: currentDay, zoom, unscheduled: false,
   };
   const move = (update: Partial<Navigation>) => setState({ ...nav, ...update });
   const calendar = view?.type === 'calendar';

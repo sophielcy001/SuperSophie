@@ -81,22 +81,47 @@ impl Store {
             criteria.push_str(" AND ");
             criteria.push_str(&schedule_clause(&collection, view, range, &mut arguments)?);
         }
-        let total: u32 = tx.query_row(
-            &format!("SELECT count(*) {criteria}"),
-            params_from_iter(&arguments.0),
-            |row| row.get(0),
-        )?;
-        let last_page = total.saturating_sub(1) / PAGE_SIZE;
-        let offset = (offset / PAGE_SIZE).min(last_page) * PAGE_SIZE;
+        let page = offset / PAGE_SIZE;
+        // The first page can get its exact total from the same scan as its records.
+        // Later pages need the total before selecting rows so a stale offset can be clamped.
+        let mut total = if page == 0 {
+            None
+        } else {
+            Some(tx.query_row(
+                &format!("SELECT count(*) {criteria}"),
+                params_from_iter(&arguments.0),
+                |row| row.get::<_, u32>(0),
+            )?)
+        };
+        let offset = total.map_or(0, |count| {
+            page.min(count.saturating_sub(1) / PAGE_SIZE) * PAGE_SIZE
+        });
         let sorted = record_order(&collection, view.settings.sort.as_ref(), &mut arguments)?;
         let limit = arguments.bind(i64::from(PAGE_SIZE));
-        let start = arguments.bind(i64::from(offset));
-        let mut records: Vec<Record> = {
-            let mut query = tx.prepare(&format!(
+        let sql = if page == 0 {
+            format!(
+                "WITH first_page AS MATERIALIZED (
+                     SELECT p.id, count(*) OVER () AS total {criteria} ORDER BY {sorted} LIMIT {limit}
+                 )
+                 SELECT {RECORD_COLUMNS}, first_page.total FROM first_page
+                 JOIN collection_records r ON r.page_id = first_page.id
+                 JOIN pages p ON p.id = first_page.id ORDER BY {sorted}"
+            )
+        } else {
+            let start = arguments.bind(i64::from(offset));
+            format!(
                 "SELECT {RECORD_COLUMNS} {criteria} ORDER BY {sorted} LIMIT {limit} OFFSET {start}"
-            ))?;
+            )
+        };
+        let mut records: Vec<Record> = {
+            let mut query = tx.prepare(&sql)?;
             query
-                .query_map(params_from_iter(&arguments.0), record_row)?
+                .query_map(params_from_iter(&arguments.0), |row| {
+                    if total.is_none() {
+                        total = Some(row.get(6)?);
+                    }
+                    record_row(row)
+                })?
                 .collect::<rusqlite::Result<_>>()?
         };
         let computed = collection
@@ -124,7 +149,7 @@ impl Store {
         tx.commit()?;
         Ok(RecordPage {
             records,
-            total,
+            total: total.unwrap_or(0),
             offset,
             page_size: PAGE_SIZE,
         })
@@ -218,11 +243,12 @@ fn schedule_clause(
             field.into()
         }
     };
+    // A record without an end value lasts its start day, as in Notion.
     let ordered = match &last {
-        Some(last) if start.kind == PropertyKind::DateTime => {
-            format!("unixepoch({last}) >= unixepoch({first})")
-        }
-        Some(last) => format!("{last} >= {first}"),
+        Some(last) if start.kind == PropertyKind::DateTime => format!(
+            "{first} IS NOT NULL AND ({last} IS NULL OR unixepoch({last}) >= unixepoch({first}))"
+        ),
+        Some(last) => format!("{first} IS NOT NULL AND ({last} IS NULL OR {last} >= {first})"),
         None => format!("{first} IS NOT NULL"),
     };
     match range {
@@ -238,7 +264,10 @@ fn schedule_clause(
             let from = arguments.bind(from.clone());
             let through = arguments.bind(through.clone());
             let begins = dated(&first);
-            let ends = last.as_deref().map(dated).unwrap_or_else(|| begins.clone());
+            let ends = last
+                .as_deref()
+                .map(|last| format!("COALESCE({}, {begins})", dated(last)))
+                .unwrap_or_else(|| begins.clone());
             Ok(format!(
                 "({ordered}) AND {begins} <= {through} AND {ends} >= {from}"
             ))

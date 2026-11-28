@@ -232,7 +232,7 @@ fn v19_upgrade_preserves_old_integration_without_a_deadline() {
         current
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .unwrap(),
-        21
+        22
     );
 }
 

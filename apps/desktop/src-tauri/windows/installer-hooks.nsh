@@ -22,94 +22,41 @@ Var ZhiyeWebView2Installer
 Var ZhiyeWebView2Result
 Var ZhiyeOverlayInstall
 
-; Tauri includes its running-app check before this hook. Keep its prompts and
-; shutdown behavior, and recheck a 350 (no shutdown action) in a fresh session.
+; A running editor can veto an ordinary close to retain an unsaved draft.
+; Wait briefly for a naturally released file, then leave its owner running.
 !ifmacrodef CheckIfAppIsRunning
 !macroundef CheckIfAppIsRunning
 !macro CheckIfAppIsRunning executablePath productName
-  !define ZHIYE_RM_CHECK_ID ${__LINE__}
   !insertmacro RestartManager_StartSession $R0
   ${If} $R0 != ""
     !insertmacro RestartManager_RegisterFile $R0 "${executablePath}"
-    StrCpy $R5 $0
+    StrCpy $R4 -1
     ${If} $0 == 0
-      System::Call 'RSTRTMGR::RmGetList(i R0, *i .r1, *i .r2, p 0, *i .r3) i.r0'
+      StrCpy $R5 "${ZHIYE_FILE_RETRY_COUNT}"
+      ${Do}
+        System::Call 'RSTRTMGR::RmGetList(i R0, *i .r1, *i .r2, p 0, *i .r3) i.r0'
+        StrCpy $R4 $0
+        ${If} $R4 != 234 ; ERROR_MORE_DATA
+        ${OrIf} $R5 == 0
+          ${ExitDo}
+        ${EndIf}
+        Sleep ${ZHIYE_FILE_RETRY_DELAY_MS}
+        IntOp $R5 $R5 - 1
+      ${Loop}
     ${EndIf}
-
-    ${If} $0 == 234 ; ERROR_MORE_DATA
-    ${AndIf} $R5 == 0
+    !insertmacro RestartManager_EndSession $R0
+    ${If} $R4 == 234
+      nsis_tauri_utils::StrReplace "$(ZhiyeAppInUse)" "{{product_name}}" "${productName}"
+      Pop $R1
+      DetailPrint $R1
+      SetErrorLevel 2
       ${IfNot} ${Silent}
       ${AndIf} $PassiveMode != 1
-        nsis_tauri_utils::StrReplace "$(appRunningOkKill)" "{{product_name}}" "${productName}"
-        Pop $R1
-        MessageBox MB_OKCANCEL $R1 IDOK zhiye_rm_shutdown_${ZHIYE_RM_CHECK_ID}
-        !insertmacro RestartManager_EndSession $R0
-        nsis_tauri_utils::StrReplace "$(appRunning)" "{{product_name}}" "${productName}"
-        Pop $R1
-        Abort $R1
+        MessageBox MB_ICONEXCLAMATION|MB_OK $R1
       ${EndIf}
-
-      zhiye_rm_shutdown_${ZHIYE_RM_CHECK_ID}:
-      System::Call 'RSTRTMGR::RmShutdown(i R0, i ${RmForceShutdown}, p 0) i.r0'
-      StrCpy $R4 $0
-      System::Call 'RSTRTMGR::RmEndSession(i R0) i.r6'
-      StrCpy $R0 ""
-
-      ${If} $R4 == 350 ; ERROR_FAIL_NOACTION_REBOOT
-      ${AndIf} $6 == 0
-        StrCpy $R5 "${ZHIYE_FILE_RETRY_COUNT}"
-        ${DoWhile} $R5 > 0
-          IntOp $R5 $R5 - 1
-          Sleep ${ZHIYE_FILE_RETRY_DELAY_MS}
-          !insertmacro RestartManager_StartSession $R0
-          ${If} $R0 == ""
-            ${ExitDo}
-          ${EndIf}
-          !insertmacro RestartManager_RegisterFile $R0 "${executablePath}"
-          ${If} $0 == 0
-            System::Call 'RSTRTMGR::RmGetList(i R0, *i .r1, *i .r2, p 0, *i .r3) i.r0'
-          ${EndIf}
-          System::Call 'RSTRTMGR::RmEndSession(i R0) i.r6'
-          StrCpy $R0 ""
-          ${If} $6 != 0
-            ${ExitDo}
-          ${EndIf}
-          ${If} $0 == 0
-          ${AndIf} $1 == 0
-          ${AndIf} $2 == 0
-          ${AndIf} $3 == 0
-            StrCpy $R4 0
-            ${ExitDo}
-          ${EndIf}
-        ${Loop}
-      ${EndIf}
-
-      ${If} $R4 != 0
-        DetailPrint "Restart Manager could not release ${productName} (Windows error $R4)."
-        ${If} ${Silent}
-          nsis_tauri_utils::StrReplace "$(appRunning)" "{{product_name}}" "${productName}"
-          Pop $R1
-          System::Call 'kernel32::AttachConsole(i -1) i.r0'
-          ${If} $0 != 0
-            System::Call 'kernel32::GetStdHandle(i -11) i.r0'
-            System::Call 'kernel32::SetConsoleTextAttribute(i r0, i 4)'
-            FileWrite $0 "$R1$\n"
-          ${EndIf}
-          SetErrorLevel 2
-          Abort
-        ${EndIf}
-        nsis_tauri_utils::StrReplace "$(failedToKillApp)" "{{product_name}}" "${productName}"
-        Pop $R1
-        SetErrorLevel 2
-        Abort $R1
-      ${EndIf}
-    ${EndIf}
-
-    ${If} $R0 != ""
-      !insertmacro RestartManager_EndSession $R0
+      Quit
     ${EndIf}
   ${EndIf}
-  !undef ZHIYE_RM_CHECK_ID
 !macroend
 !endif
 
@@ -259,10 +206,14 @@ FunctionEnd
     !else
       StrCpy $ZhiyeWebView2Installer "$PLUGINSDIR\MicrosoftEdgeWebView2Setup.exe"
       DetailPrint "$(webview2Downloading)"
-      NSISdl::download "https://go.microsoft.com/fwlink/p/?LinkId=2124703" "$ZhiyeWebView2Installer"
+      ; NSISdl uses plain HTTP even when the URL has an HTTPS scheme.
+      System::Call '$SYSDIR\urlmon.dll::URLDownloadToFileW(p 0, w "https://go.microsoft.com/fwlink/p/?LinkId=2124703", w "$ZhiyeWebView2Installer", i 0, p 0) i.s'
       Pop $ZhiyeWebView2Result
-      ${If} $ZhiyeWebView2Result != "success"
+      ${If} $ZhiyeWebView2Result != "0"
         !insertmacro ZhiyeAbortWebView2 "WebView2 bootstrapper download failed ($ZhiyeWebView2Result)."
+      ${EndIf}
+      ${IfNot} ${FileExists} "$ZhiyeWebView2Installer"
+        !insertmacro ZhiyeAbortWebView2 "The WebView2 download did not create the bootstrapper file."
       ${EndIf}
     !endif
 
@@ -347,7 +298,7 @@ FunctionEnd
     DetailPrint "Could not delete ${MAINBINARYNAME}.exe (Windows error $1)."
     System::Store "fL"
     SetErrorLevel 2
-    Abort "无法删除知页的程序文件。请检查文件占用和权限后重试卸载。"
+    Abort "$(ZhiyeProgramDeleteDenied)"
   ${EndIf}
 
   zhiye_uninstall_application_done:

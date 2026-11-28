@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+{
+	{$ZHIYE_SYNC_CADDY_OPTIONS}
+}
+
+{$ZHIYE_SYNC_DOMAIN} {
+	# 附件原件最大 100 MiB，JSON 请求最大 32 MiB。
+	request_body {
+		max_size 110MB
+	}
+	reverse_proxy sync:8787
+}

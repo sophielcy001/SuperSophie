@@ -8,6 +8,8 @@ import { composing } from './keyboard';
 export interface Command {
   id: string;
   name: string;
+  /** Shortcut hint shown beside the command, e.g. ⌘K. */
+  shortcut?: string;
   run(): void;
 }
 
@@ -28,7 +30,7 @@ export function CommandPalette({ commands, onChoose, onClose }: {
     if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' });
   }, [activeId]);
 
-  return <Modal title="命令面板" className="picker-dialog" initialFocus={input} onClose={onClose}>
+  return <Modal title="命令面板" className="picker-dialog" initialFocus={input} onClose={onClose} bare>
     <div className="picker-input"><Search size={18} aria-hidden /><input ref={input} type="text" role="combobox"
       aria-label="筛选命令" aria-controls={`${id}-commands`} aria-expanded={matches.length > 0}
       aria-autocomplete="list" aria-activedescendant={activeId} placeholder="输入命令名称…" value={query}
@@ -48,7 +50,8 @@ export function CommandPalette({ commands, onChoose, onClose }: {
       {matches.map((command, item) => <div id={`${id}-${command.id}`} key={command.id} role="option" aria-selected={item === selected}
         className={`picker-row command-row${item === selected ? ' highlighted' : ''}`}
         onMouseDown={(event) => event.preventDefault()} onMouseMove={() => setIndex(item)} onClick={() => onChoose(command)}>
-        <strong>{command.name}</strong>
+        <span className="command-name">{command.name}</span>
+        {command.shortcut && <kbd className="command-shortcut" aria-hidden>{command.shortcut}</kbd>}
         {item === selected && <CornerDownLeft size={15} className="picker-enter" aria-hidden />}
       </div>)}
     </div>

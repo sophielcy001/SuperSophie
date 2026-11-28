@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# 知页自托管同步：PostgreSQL + 同步服务 + Caddy（自动 HTTPS）。
+# 首次使用：sh init-secrets.sh，编辑 .env，然后 docker compose up -d --build
+name: zhiye-sync
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zhiye_sync
+      POSTGRES_USER: zhiye
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zhiye -d zhiye_sync"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  sync:
+    build:
+      context: ../..
+      dockerfile: deploy/sync/Dockerfile
+    image: zhiye-sync-server:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ZHIYE_SYNC_DATABASE_URL: "host=postgres user=zhiye dbname=zhiye_sync"
+      ZHIYE_SYNC_DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
+      ZHIYE_SYNC_ADMIN_TOKEN_FILE: /run/secrets/admin_token
+    secrets: [postgres_password, admin_token]
+    volumes:
+      - blobs:/data
+    # 不对外发布端口，只经由 Caddy 访问。
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [sync]
+    ports:
+      - "${ZHIYE_SYNC_HTTP_PORT:-80}:80"
+      - "${ZHIYE_SYNC_HTTPS_PORT:-443}:443"
+    environment:
+      ZHIYE_SYNC_DOMAIN: ${ZHIYE_SYNC_DOMAIN:?请在 .env 中设置 ZHIYE_SYNC_DOMAIN}
+      ZHIYE_SYNC_CADDY_OPTIONS: ${ZHIYE_SYNC_CADDY_OPTIONS:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  admin_token:
+    file: ./secrets/admin_token
+
+volumes:
+  postgres:
+  blobs:
+  caddy_data:
+  caddy_config:

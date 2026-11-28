@@ -6,8 +6,8 @@ import type {
   ArchiveMerge, Attachment, AttachmentBatch, BackupAttempt, BackupPolicy, BackupStatus, BacklinkPage, BlobCleanup, BlobCleanupPreview, Collection, CollectionRecord, CollectionSummary, ComputedDraft, ContentImport, CsvExport,
   HistoryEntry, ImportOutcome, Integration, IntegrationDraft, IssuedIntegration, LocalApiStatus, MigrationBatch, Navigation,
   Page, PageDraft, PageInfo, PageMoves, PageVersion, ProposalAction, ProposalReview, ProposalSummary,
-  PropertyConversionPreview, PropertyDraft, RecordDraft, RecordPage, ReferenceSource, RelationDraft, RelationTargetPage, ResolvedLocation, ScheduleMove,
-  SearchIndexStatus, SearchRequest, SearchResponse, TemplateSummary, TrashPreview, TrashRemoval, ViewDraft, ViewRange, Workspace, WorkspaceOverview,
+  PropertyConversionPreview, PropertyDraft, RecordDraft, RecordPage, ReferenceSource, RelationDraft, RelationTargetPage, ResolvedLocation, ScheduleMove, ScheduleResize, ViewKind,
+  RemoteWorkspace, SearchIndexStatus, SearchRequest, SearchResponse, SyncDevice, SyncOverview, SyncReport, TemplateSummary, TrashPreview, TrashRemoval, ViewDraft, ViewRange, Workspace, WorkspaceOverview,
   PdfDocumentStatus, PdfIndexPoll, PdfIndexResult, PdfProgress, PdfTarget,
 } from './contracts';
 
@@ -23,6 +23,19 @@ export const desktop = {
   onLocation: (receive: () => void) => listen('location-ready', receive),
   onWorkspaceContentChanged: (receive: (workspace: string) => void) =>
     listen<string>('workspace-content-changed', (event) => receive(event.payload)),
+  onSyncApplied: (receive: (workspace: string) => void) =>
+    listen<string>('sync-applied', (event) => receive(event.payload)),
+  onSyncFinished: (receive: (workspace: string) => void) =>
+    listen<string>('sync-finished', (event) => receive(event.payload)),
+  syncOverview: (workspace: string) => invoke<SyncOverview>('sync_overview', { workspace }),
+  registerSyncDevice: (server: string, adminToken: string, name: string) =>
+    invoke<SyncDevice>('register_sync_device', { server, adminToken, name }),
+  forgetSyncDevice: () => invoke<void>('forget_sync_device'),
+  enableWorkspaceSync: (workspace: string) => invoke<SyncReport>('enable_workspace_sync', { workspace }),
+  disableWorkspaceSync: (workspace: string) => invoke<SyncOverview>('disable_workspace_sync', { workspace }),
+  syncWorkspaceNow: (workspace: string) => invoke<SyncReport>('sync_workspace_now', { workspace }),
+  remoteWorkspaces: () => invoke<RemoteWorkspace[]>('list_remote_workspaces'),
+  joinRemoteWorkspace: (id: string, name: string) => invoke<Workspace>('join_remote_workspace', { id, name }),
   takeLocation: () => invoke<string | null>('take_location'),
   resolveLocation: (url: string) => invoke<ResolvedLocation>('resolve_location', { url }),
   makeLocation: (workspace: string, page: string, block: string | null, pdf?: PdfTarget) =>
@@ -77,8 +90,9 @@ export const desktop = {
   finishPdfIndex: (workspace: string, result: PdfIndexResult) => invoke<PdfProgress>('finish_pdf_index', { workspace, result }),
   pdfDocumentStatus: (workspace: string, page: string) => invoke<PdfDocumentStatus[]>('pdf_document_status', { workspace, page }),
   collections: (workspace: string) => invoke<CollectionSummary[]>('list_collections', { workspace }),
-  createCollection: (workspace: string, parentId: string | null) =>
-    invoke<{ collection: CollectionSummary; page: Page }>('create_collection', { workspace, parentId }),
+  /** `view` makes that view type the database's first view, with the date properties it needs. */
+  createCollection: (workspace: string, parentId: string | null, view?: ViewKind) =>
+    invoke<{ collection: CollectionSummary; page: Page }>('create_collection', { workspace, parentId, view: view ?? null }),
   collection: (workspace: string, collection: string) =>
     invoke<Collection>('read_collection', { workspace, collection }),
   records: (workspace: string, collection: string, view: string, offset: number, range?: ViewRange) =>
@@ -103,6 +117,8 @@ export const desktop = {
     invoke<Collection>('delete_collection_view', { workspace, collection, view, revision }),
   moveScheduledRecord: (workspace: string, collection: string, change: ScheduleMove) =>
     invoke<Page>('move_scheduled_record', { workspace, collection, change }),
+  resizeScheduledRecord: (workspace: string, collection: string, change: ScheduleResize) =>
+    invoke<Page>('resize_scheduled_record', { workspace, collection, change }),
   saveRecord: (workspace: string, collection: string, id: string, revision: number, draft: RecordDraft) =>
     invoke<Page>('save_record', { workspace, collection, id, revision, draft }),
   exportWorkspace: (workspace: string, includeHistory = true) =>
@@ -163,4 +179,8 @@ export const desktop = {
   exportRecordDraft: (workspace: string, collection: string, id: string, revision: number, draft: RecordDraft) =>
     invoke<boolean>('export_record_draft', { workspace, collection, id, revision, draft }),
   openWebLink: (href: string) => invoke<void>('open_web_link', { href }),
+  /** Reads a page title for a bookmark card; only on the user's request. */
+  fetchWebTitle: (href: string, workspace?: string, page?: string) => invoke<{
+    title: string | null; description: string | null; image: { attachmentId: string; mediaType: string } | null;
+  }>('fetch_web_title', { href, workspace, page }),
 };

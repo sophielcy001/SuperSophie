@@ -525,7 +525,7 @@ fn prune(
     }
     journal
         .points
-        .sort_by(|a, b| b.recovery.created_at.cmp(&a.recovery.created_at));
+        .sort_by_key(|entry| std::cmp::Reverse(entry.recovery.created_at));
     let mut daily = BTreeSet::new();
     let mut weekly = BTreeSet::new();
     journal.points.retain_mut(|entry| {

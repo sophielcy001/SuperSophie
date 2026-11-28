@@ -26,6 +26,67 @@ describe('public block format', () => {
     expect(toBlocks(doc)).toEqual([paragraph]);
   });
 
+  it('keeps Notion text and background colors, and preserves unknown colors as an unknown block', () => {
+    const colored: Block = {
+      ...paragraph,
+      payload: { inline: [{ type: 'text', text: '重点', marks: [{ type: 'textColor', color: 'red' }, { type: 'backgroundColor', color: 'yellow' }] }] },
+    };
+    const doc = fromBlocks([colored]);
+    expect(doc.content?.[0].content?.[0].marks).toEqual([
+      { type: 'textColor', attrs: { color: 'red' } }, { type: 'backgroundColor', attrs: { color: 'yellow' } },
+    ]);
+    expect(toBlocks(doc)).toEqual([colored]);
+    const unknown: Block = { ...paragraph, payload: { inline: [{ type: 'text', text: '重点', marks: [{ type: 'textColor', color: '#ff0000' }] }] } };
+    expect(fromBlocks([unknown]).content?.[0].type).toBe('unknownBlock');
+  });
+
+  it('keeps a whole block color named as in Notion', () => {
+    const tinted: Block = { ...paragraph, payload: { ...paragraph.payload, color: 'blue_background' } };
+    const doc = fromBlocks([tinted]);
+    expect(doc.content?.[0].attrs?.blockColor).toBe('blue_background');
+    expect(toBlocks(doc)).toEqual([tinted]);
+    expect(fromBlocks([{ ...paragraph, payload: { ...paragraph.payload, color: 'blue_text' } }]).content?.[0].type).toBe('unknownBlock');
+  });
+
+  it('keeps indentation, columns, bookmarks and comments, and rejects malformed ones', () => {
+    const block = (type: string, payload: Block['payload'], children: Block[] = []): Block => ({
+      id: crypto.randomUUID(), type, schemaVersion: 1, payload, children,
+    });
+    const line = (text: string, marks?: unknown[]) => block('paragraph', { inline: [{ type: 'text', text, ...(marks ? { marks } : {}) }] });
+    const blocks = [
+      line('上级', [{ type: 'comment', text: '补充来源' }]),
+      { ...line('讨论', [{ type: 'comment', text: '问题', replies: ['回复一', '回复二'] }]), children: [line('子块')] },
+      block('columnList', {}, [block('column', { width: 137 }, [line('左')]), block('column', { width: 63 }, [line('右')])]),
+      block('bookmark', { url: 'https://example.com/a', title: '示例', description: '摘要' }),
+      block('bookmark', { url: 'https://example.com/b', attachmentId: '6f0a5f4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f', mediaType: 'image/png' }),
+    ];
+    const doc = fromBlocks(blocks);
+    // Children of a paragraph show as an indented run after it, as Notion's child blocks.
+    expect(doc.content?.slice(0, 6).map((node) => node.type)).toEqual(['paragraph', 'paragraph', 'indentBlock', 'columnList', 'bookmark', 'bookmark']);
+    expect(toBlocks(doc)).toEqual(blocks);
+    const malformed = [
+      block('columnList', {}, [block('column', {}, [line('只有一列')])]),
+      block('column', {}, [line('游离的列')]),
+      block('columnList', {}, [block('column', { width: 1.5 }, [line('小数宽度')]), block('column', {}, [line('右')])]),
+      block('bookmark', { url: 'javascript:alert(1)' }),
+      block('bookmark', { url: 'https://example.com', extra: 1 }),
+      block('bookmark', { url: 'https://example.com', attachmentId: '6f0a5f4e-1a2b-4c3d-8e9f-0a1b2c3d4e5f' }),
+      line('空评论', [{ type: 'comment', text: ' ' }]),
+      line('空回复', [{ type: 'comment', text: '问题', replies: [] }]),
+    ];
+    expect(fromBlocks(malformed).content?.slice(0, 8).map((node) => node.type)).toEqual(Array(8).fill('unknownBlock'));
+  });
+
+  it('nests indented blocks under the paragraph or heading above, and keeps a leading indent as a container', () => {
+    const line = (text: string): Block => ({ id: crypto.randomUUID(), type: 'paragraph', schemaVersion: 1, payload: { inline: [{ type: 'text', text }] }, children: [] });
+    const heading: Block = { id: crypto.randomUUID(), type: 'heading', schemaVersion: 1, payload: { level: 2, inline: [{ type: 'text', text: '标题' }] }, children: [line('一'), { ...line('二'), children: [line('三')] }] };
+    const leading: Block = { id: crypto.randomUUID(), type: 'indentBlock', schemaVersion: 1, payload: {}, children: [line('开头缩进')] };
+    const doc = fromBlocks([leading, heading]);
+    expect(doc.content?.slice(0, 3).map((node) => node.type)).toEqual(['indentBlock', 'heading', 'indentBlock']);
+    expect(doc.content?.[2].content?.map((node) => node.type)).toEqual(['paragraph', 'paragraph', 'indentBlock']);
+    expect(toBlocks(doc)).toEqual([leading, heading]);
+  });
+
   it('preserves an unknown block with extension metadata on an unrelated edit', () => {
     const future: Block = {
       id: '80a238f1-669d-435c-b437-0d87b0957c94', type: 'futureGrid', schemaVersion: 2,

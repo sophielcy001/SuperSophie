@@ -89,7 +89,7 @@ fn rich_content_keeps_history_originals_and_unknown_payloads() {
         store
             .body_attachments(&workspace, &page.id, &blocks)
             .unwrap(),
-        [file.clone()]
+        std::slice::from_ref(&file)
     );
     assert!(
         store

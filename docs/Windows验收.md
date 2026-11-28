@@ -1,13 +1,19 @@
 # Windows 1.0 验收
 
-2026-11-19 起，开发和交付优先推进 Windows x64。0.50.14 Beta 的两个 NSIS 候选用于本轮测试。使用本节安装包及其校验文件，A16 使用下方 0.31.0 合成基线，逐项记录所测版本。[平台优先级](adr/0003-Windows优先交付.md) [开发进度](../开发进度.md)
+2026-11-19 起，开发和交付优先推进 Windows x64。逐项记录所用安装包的版本和校验值。A16 使用下方 0.31.0 合成基线。草稿保护检查使用含占用保护的工作构建，两份冻结的 0.50.14 Beta 安装器用于重现此前记录。[平台优先级](adr/0003-Windows优先交付.md) [开发进度](../开发进度.md) [草稿保护工作构建](../.verify/windows-live-install-0514/复验.md)
 
-- [0.50.14 常规安装候选](../artifacts/Zhiye-0.50.14-win-x64-setup.exe) [SHA-256](../artifacts/Zhiye-0.50.14-win-x64-setup.exe.sha256)
-- [0.50.14 离线安装候选](../artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe) [SHA-256](../artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe.sha256)
+[0.50.14 HTTPS 修复批次交接 ZIP](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-windows-acceptance-handoff-verified.zip) 内含两份安装器、冻结源码、锁定缓存与校验清单。[本批构建与安装实测](../.verify/windows-current-runtime-fallback-0514/复验.md) [断网源码重建](../.verify/windows-https-rebuild-0514/复验.md) [Windows 交接与实测记录](Windows交接验收.md)
+
+- [0.50.14 中英文常规安装器](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe) [SHA-256](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe.sha256)
+- [0.50.14 中英文离线安装器](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-offline-setup.exe) [SHA-256](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-offline-setup.exe.sha256)
+
+主程序无法删除时，卸载向导在失败页按系统语言显示文件占用和权限提示。两种安装器均已验证拒绝删除时保留安装登记，权限恢复后可重试。静默卸载引擎返回 2。
+
+复现早期 Beta 验收时，使用[原常规候选](../artifacts/Zhiye-0.50.14-win-x64-setup.exe)、[原离线候选](../artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe)及各报告的 SHA-256。
 
 使用可交互的 Windows x64 测试账户和合成资料。A18 的参考设备为 16 GiB 内存和本机 SSD。把安装包、测试应用和验收数据放到本机磁盘，记录实际 Windows 版本、CPU、内存、磁盘和 WebView2 版本。验收证据与版本决策按原计划第 9 章保存。[首版验收场景](../个人资源管理系统_完整开发Plan_v2.0.md#91-首版必须完成的场景)
 
-整套文件和逐项校验清单可随验收 ZIP 转移到测试机。[0.50.14 Windows 验收包](../artifacts/Zhiye-0.50.14-windows-acceptance.zip) [解包与校验](Windows验收包.md)
+整套文件和逐项校验清单可随验收 ZIP 转移到测试机。[0.50.14 Beta 历史验收 ZIP](../artifacts/Zhiye-0.50.14-windows-acceptance.zip) [解包与校验](Windows验收包.md)
 
 ## 0.50.14 Beta 候选安装包
 
@@ -21,13 +27,19 @@
 
 0.50.10 的 A16 复验补充旧备份清理重试。用共享读句柄占用到期旧 ZIP，核对告警和两份备份；释放句柄后复用当天备份并清理到期旧包。
 
+0.50.14 重建常规和离线包通过 NTFS 故障矩阵。主程序拒绝写入时两包均退出 2，旧应用和卸载登记保持。旧加载器被锁时可覆盖升级，释放后同包重试清理旧 DLL。主程序拒绝删除时卸载引擎退出 2，保留卸载器与登记。恢复权限后正常卸载成功，独立合成文件指纹一致。[0.50.14 两种重建包的故障矩阵](../.verify/windows-install-faults-0514/复验.md)
+
 覆盖时主程序文件无法写入，安装器会停止并返回非零退出码。解除文件占用后重跑安装包，核对程序版本、卸载登记和旧加载器。
+
+覆盖、维护或卸载前先保存资料并正常退出知页。草稿保护工作构建检测到持续占用时会停止操作，安装器和卸载引擎退出 2。自动验收同时核对原编辑进程、程序和卸载登记，因为 NSIS 外层卸载启动器可能返回 0。用合成库制造保存失败，验证拒绝后草稿仍在，解除故障后重试保存并正常关闭，再重新执行原操作。[覆盖、卸载和旧包维护复验](../.verify/windows-live-install-0514/复验.md)
+
+中英文安装构建根据系统界面语言选择简体中文或英文，向导提示先保存更改并正常退出，再重试。验收时确认提示后核对草稿和安装登记，独立卸载沿用默认未勾选的删除应用程序数据选项。两种安装器分别通过简体中文 Windows 的添加／重新安装、独立卸载及维护页卸载旧构建。两个独立卸载在缺少语言记录时都直接进入中文向导。[中英文原生向导实装](../.verify/windows-installer-l10n-0514/复验.md)
 
 0.50.9 的 A16 复验覆盖状态日志写入失败、新包登记和旧包保留。在隔离测试资料中验证解除故障后可继续恢复，并核对既有页面修订。
 
 0.50.8 纳入容量错误提示与自动备份告警。A03 核对草稿另存和重试，A16 核对备份状态日志不可写时的告警、旧备份保留及修复后重试。
 
-两份候选包在 Windows x64 测试机使用 MSVC 构建，目标为 Windows 10 及以上 x64，安装范围为当前用户。两包使用同版 x64 源码构建，应用文件各有独立指纹。WebView2 加载器静态链接在应用内。两份知页安装程序及应用均未签名。0.50.1 的安装、覆盖及协议记录可用于与本版逐项对照。[本版应用指纹](../.verify/windows-0513/candidate-audit.log) [历史安装与系统启动复验](../.verify/windows-install-0501/复验.md)
+两份候选包在 Windows x64 测试机使用 MSVC 构建，目标为 Windows 10 及以上 x64，安装范围为当前用户。两包使用同版 x64 源码构建，应用文件各有独立指纹。WebView2 加载器静态链接在应用内。两份知页安装程序及应用均未签名。0.50.1 的安装、覆盖及协议记录可用于与本版逐项对照。[本版应用指纹](../.verify/windows-uninstall-feedback-0514/built-packages.json) [历史安装与系统启动复验](../.verify/windows-install-0501/复验.md)
 
 0.50.2 修复 0.50.1 覆盖升级的旧加载器遗留。安装器写入新版应用后，按既有安装登记和完整 SHA-256 清理旧 DLL。若旧 DLL 正被占用，可释放文件后重跑安装器。[修复原理和回归场景](../.verify/windows-loader-cleanup/复验.md)
 
@@ -41,10 +53,10 @@
 
 0.50.3 纳入保存失败告警的辅助功能修复。通过 UI Automation 核对错误正文可读取，重试、草稿导出及其他操作独立可访问。实际讲述人按系统输入与恢复步骤验收。[告警回归](../.verify/a02-windows-0502/复验.md#保存失败告警)
 
-- 机器缺少 WebView2 Runtime 时，常规安装程序联网获取微软引导程序。[常规包](../artifacts/Zhiye-0.50.14-win-x64-setup.exe) [SHA-256](../artifacts/Zhiye-0.50.14-win-x64-setup.exe.sha256)
-- 机器缺少 WebView2 Runtime 时，离线安装程序运行随包的微软 x64 Evergreen 独立安装程序。包内运行时哈希与已验证微软主签名及时间戳的文件一致。[离线包](../artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe) [SHA-256](../artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe.sha256) [微软离线部署](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution#offline-deployment)
+- 机器缺少 WebView2 Runtime 时，常规安装程序通过 HTTPS 获取微软引导程序。无法联网时，安装会停止，可在同一台机器运行离线包。[常规包](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe) [SHA-256](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe.sha256) [联网首装实测](../.verify/windows-current-online-runtime-0514/复验.md) [断网失败与接续实测](../.verify/windows-current-runtime-fallback-0514/复验.md)
+- 机器缺少 WebView2 Runtime 时，离线安装程序运行随包的微软 x64 Evergreen 独立安装程序。包内运行时哈希与已验证微软主签名及时间戳的文件一致。[离线包](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-offline-setup.exe) [SHA-256](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-offline-setup.exe.sha256) [微软离线部署](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution#offline-deployment)
 
-在项目根目录用 PowerShell 核对安装包。验证常规包时替换 `$candidate` 的路径，保留对应的校验文件。
+在验收 ZIP 解包后的顶层目录用 PowerShell 核对安装包。验证常规包或单独下载的安装包时，将 `$candidate` 设为该文件的路径，并在同目录保留对应的校验文件。
 
 ```powershell
 $candidate = '.\artifacts\Zhiye-0.50.14-win-x64-offline-setup.exe'
@@ -53,7 +65,15 @@ $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidate).Hash
 if ($actual -ne $expected) { throw '安装包 SHA-256 不匹配。' }
 ```
 
+中文和空格可用于自定义安装位置。分页修复批次的常规包在 Windows 10 完成静默安装，离线包读取原登记后原位覆盖。已核对系统链接、快捷方式及卸载后的资料保留。[分页修复批次中文路径实装](../.verify/windows-pdf-pagination-unicode-0514/复验.md) [较早批次复验](../.verify/windows-unicode-install-0514/复验.md)
+
 ## A17 断网安装
+
+当前 0.50.14 验收 ZIP 内的离线包已在无网卡、无 WebView2 的 Windows 10 客机验证中文欢迎页并完成两轮安装。首装登记 WebView2 157.0.4341.60，第二轮复用同一文件。开始菜单启动、早期关闭、重开及卸载均通过。同一安装器另通过 27 项实装桌面和键盘检查。[当前离线包断网实装](../.verify/windows-uninstall-runtime-0514/复验.md)
+
+当前验收 ZIP 已在无网卡 Windows 10 客机从空目录离线重建。SDK、MCP 和桌面使用锁定依赖完成构建，两种 NSIS 各通过 27 项桌面及键盘检查和卸载。实装件的语言提示和许可文件已核对。[当前源码重建与实装复验](../.verify/windows-uninstall-rebuild-0514/复验.md)
+
+0.50.14 重建离线包在无 WebView2 的断网 Windows 10 客机完成首装，在当前用户注册 WebView2 157.0.4341.60。卸载后再次安装复用同一运行时，运行时可执行文件的 SHA-256、创建时间和修改时间一致。两轮均由开始菜单启动，覆盖主窗口首次可见时关闭及用同资料目录重开，四次关闭和两次卸载均退出 0。[重建包断网首装](../.verify/windows-rebuilt-runtime-0514/复验.md)
 
 用专用 Windows x64 测试账户或快照准备两种初始状态。一份缺少 WebView2 Runtime，另一份已有可用版本。将离线包和校验文件复制到本机磁盘，核对哈希，再断开外网并保留本机回环。
 
@@ -84,7 +104,7 @@ npm.cmd ci --offline --no-audit --no-fund
 
 按交接步骤在 Windows 从同一份归档源码构建常规和离线 NSIS 安装包。记录两次打包的退出状态、输出路径和 SHA-256。提前预热同版本 Tauri 所需的 NSIS 工具和插件，并将已核验的 WebView2 独立运行时提供给离线构建入口。[两种安装包的重建步骤](Windows验收包.md#从源码重建两种安装包) [离线构建与缓存](离线构建与验收.md)
 
-在干净的测试账户或快照中安装候选包，留存安装结果、安装位置和应用文件哈希。在安装目录核对 `LICENSE`、`THIRD_PARTY_NOTICES.md` 和 `licenses` 下的八份许可文件。通过开始菜单启动，确认产品和版本。下列命令读取注册的协议处理程序。使用测试账户的默认数据目录运行以下两次协议启动，以启用 Windows 单实例转发。[第三方组件清单](../THIRD_PARTY_NOTICES.md) [定位链接操作](定位链接.md)
+在干净的测试账户或快照中安装候选包，留存安装结果、安装位置和应用文件哈希。在安装目录核对 `LICENSE`、`THIRD_PARTY_NOTICES.md` 和 `licenses` 下的九份许可文件。通过开始菜单启动，确认产品和版本。下列命令读取注册的协议处理程序。使用测试账户的默认数据目录运行以下两次协议启动，以启用 Windows 单实例转发。[第三方组件清单](../THIRD_PARTY_NOTICES.md) [定位链接操作](定位链接.md)
 
 ```powershell
 (Get-Item -LiteralPath 'Registry::HKEY_CLASSES_ROOT\zhiye\shell\open\command').GetValue('')
@@ -110,6 +130,12 @@ node .\scripts\verify-desktop.mjs $installed --installed --keyboard --scratch 'C
 
 在测试页中用「页面操作 → 页面外观」改图标、导入本地 PNG 并保存封面，退出再打开。随后选择「无封面」，在附件列表核对原件，再从历史恢复有封面的修订。导出 Markdown 并核对相对图片路径。旧库升级时一并核对页面 ID、原有正文和升级前的恢复包。[页面数据格式](数据格式.md#工作空间)
 
+分页修复批次已在断网 Windows 10 实装验证跨目录移动、两种循环拒绝、图标封面重开以及从旧修订恢复外观。独立核对父子页身份、12 个历史快照和系统导出的封面指纹。[分页修复批次页面树与外观](../.verify/windows-pdf-pagination-appearance-0514/复验.md)
+
+较早交接批次已在断网 Windows 10 实装验证单页移动、面包屑与循环拒绝。从移动前的修订恢复封面后，页面留在新目录，导出图片与本地原件指纹一致。[当前批次页面树与外观](../.verify/windows-current-appearance-0514/复验.md)
+
+当前交接件已在断网 Windows 10 实装复验两类模板。更新前后各创建页面分支和数据库记录，核对封面、块定位、字段值、附件 ID 与重开后的新旧正文。[当前批次模板复验](../.verify/windows-current-templates-0514/复验.md)
+
 用包含折叠、公式、页面引用和附件的测试页导出 Markdown。核对提示中的配套目录、报告中的源页修订及块 ID，按相对路径读取附件并用 `Get-FileHash -Algorithm SHA256` 对照报告。打开报告里的源链接，确认回到对应页或块。在记录页从两张图片中手选封面，随后打开默认画廊和指定附件属性的画廊，核对各自显示的图片。[通用导出](数据格式.md#通用导出) [画廊](数据库视图.md#画廊)
 
 对同一页另存 HTML，把正文文件和配套目录一起移到独立目录，断网从浏览器打开。核对表格、封面、本地原件和源引用。在「备份与恢复」分别勾选与取消「内容包包含修订历史」，导出后把两个包恢复到独立空间。比较两份恢复的当前正文与原件，并核对选中的历史版本。[内容包格式](数据格式.md#原生工作空间包)
@@ -118,9 +144,19 @@ node .\scripts\verify-desktop.mjs $installed --installed --keyboard --scratch 'C
 
 ## 系统输入与恢复
 
+当前 Windows 交接件的常规安装器通过 `zhiye://` 系统冷启动，定位已改名、移动的原块。在已有窗口中转发时先保存再切页。事务日志受阻时保留草稿，恢复后重试提交并在重开时读回第 4 版。[当前批次系统链接复验](../.verify/windows-current-shell-links-0514/复验.md)
+
+PDF 分页修复批次的常规安装器已在断网 Windows 10 实装通过系统剪贴板及原生拖动。正文收到 `Ctrl+V` 发出的 HTML 和 Unicode 纯文本，保留中英混排与粗体，新增段落取得独立块 ID。撤销、重做、键盘移块、嵌套拖动和等待保存切页均通过。[分页修复批次正文编辑](../.verify/windows-pdf-pagination-editor-0514/复验.md) [较早 0.50.14 批次剪贴板](../.verify/windows-current-clipboard-0514/复验.md)
+
+PDF 分页修复批次的常规安装器已在断网 Windows 10 实装通过默认微软拼音。标题及正文均验证原生点击聚焦、取消和空格确认。确认后 57.1、48.3 毫秒切页，重开读回第 3、4 版、原块 ID 和连续修订。[分页修复批次拼音复验](../.verify/windows-pdf-pagination-ime-0514/复验.md) [较早 0.50.14 批次](../.verify/windows-current-ime-0514/复验.md)
+
+PDF 分页修复批次常规安装器已在断网 Windows 10 客机复验讲述人。系统录音与 Windows UI Automation 核对搜索、任务中文名称和数据库保存告警，重开保留第 5 版以及 8 个块 ID。[分页修复批次讲述人复验](../.verify/windows-pdf-pagination-narrator-0514/复验.md) [较早 0.50.14 批次](../.verify/windows-current-narrator-0514/复验.md)
+
 0.50.12 常规包已在无网卡 Windows 10 客机使用微软拼音兼容模式完成标题、正文的原生取消与确认后立即切页。0.50.13 补测默认新版，记事本和空白 WebView2 文本框可用空格提交，现有标题和预填文本框的组字仍待修复。0.50.12 系统讲述人读出页面树、搜索和任务控件及保存失败告警，录音和实际修订均已归档。[兼容模式](../.verify/a02-windows-ime/复验.md) [默认模式](../.verify/a02-windows-0513/复验.md) [讲述人取证](../.verify/a02-windows-narrator/复验.md)
 
 0.50.14 常规专项候选在同一客机用默认新版微软拼音通过 Windows 原生点击后输入。取消保留原修订，空格确认后立即切页分别提交标题第 3 版和正文第 4 版，重开保留内容和块 ID。[常规专项安装包](../artifacts/Zhiye-0.50.14-win-x64-setup.exe) [SHA-256](../artifacts/Zhiye-0.50.14-win-x64-setup.exe.sha256) [同版复验](../.verify/windows-0514/复验.md)
+
+0.50.14 常规包在断网 Windows 10 客机完成同版讲述人复验。实际录音及 Windows UI Automation 核对了页面树、搜索对话框与结果、任务中文名称和状态，以及保存失败提示。子任务改名后用空格取消勾选，重开读回。保存失败保持第 4 版，重试只新增第 5 版，8 个块 ID 保留。[0.50.14 讲述人复验](../.verify/a02-windows-narrator-0514/复验.md)
 
 - 用 Windows 中文输入法在标题和正文中分别组字并停留一秒。核对「输入法组字中」以及历史修订。各取消一次和确认一次，确认后立即切页，再检查正文、块 ID、焦点及新增修订。随后测试混排粘贴、移动、撤销和重开。使用 Windows「讲述人」检查树、搜索结果、模态窗口和保存错误的播报。[键盘复验](键盘与外观.md#复验)
 - 在任务清单中创建一个任务和嵌套子项，再添加一项首段仅含页面引用的任务。用讲述人核对各复选框的中文名称和勾选状态。给子项改名后确认只更新该子项的名称，按空格切换并重开检查保存结果。[任务清单键盘行为](键盘与外观.md)
@@ -128,6 +164,10 @@ node .\scripts\verify-desktop.mjs $installed --installed --keyboard --scratch 'C
 - 在独立测试库归档带子页和附件的分支。用键盘验证清空确认的初始焦点和 Esc 取消，再确认清空，核对保留页面、源块不可用提示及旧备份可恢复。用备有已满七天标记的合成隔离库测试清理，检查原件移除及共享原件保留。[清空回收站](故障恢复.md#清空回收站与清理附件原件)
 
 ## A03 保存失败与草稿恢复
+
+当前交接件的常规安装器在断网 Windows 10 实装，使用独立的 128 MiB NTFS 差分盘两次写满。保存失败时已提交内容维持第 2 版，系统另存草稿后重试至第 3 版。强制重开和第二次明确放弃草稿均读回第 3 版。[当前批次 A03](../.verify/windows-current-ntfs-0514/复验.md#a03-保存失败与草稿恢复)
+
+0.50.14 常规包在断网客机实装通过两次卷写满、系统草稿另存、重试、强制重开及明确放弃。[同版 NTFS 复验](../.verify/windows-ntfs-0514/复验.md)
 
 在独立小容量 NTFS 测试卷使用合成资料库，另备一个有足够空间的草稿输出目录。创建含正文、页面引用的测试页，先保存并记下修订号。只在测试卷放置占位文件，直到 Windows 报告空间不足。在原编辑器修改标题和正文，按 `Ctrl+S`，核对保存失败、原修订与历史保持，以及 `Alt+F4` 后草稿仍在。
 
@@ -137,6 +177,10 @@ node .\scripts\verify-desktop.mjs $installed --installed --keyboard --scratch 'C
 
 ## A06 附件原件与复制失败
 
+当前交接件的常规安装器在独立 NTFS 卷剩余 4 MiB 时复制失败，原页面、登记和已有原件保持。释放容量后重试、系统另存哈希、两处正文引用重开和 PDF 第 2 页定位均通过。[当前批次 A06](../.verify/windows-current-ntfs-0514/复验.md#a06-附件复制与重试)
+
+0.50.14 常规包在剩余 4 MiB 时复制失败并保留原页和原件。释放空间后重试、另存哈希和两处引用重开均通过。[同版 NTFS 复验](../.verify/windows-ntfs-0514/复验.md)
+
 0.50.12 常规包在断网 Windows 10 客机的独立 NTFS 虚拟卷完成第 4 步。真实空间不足时保留原页及原件，释放容量后重试、另存逐文件核对及重开均通过。目标路径占用场景见历史复验。[0.50.12 独立卷复验](../.verify/windows-ntfs-capacity/复验.md#a06-附件复制与重试) [路径占用复验](../.verify/windows-storage-0502/复验.md#a06-附件与原件)
 
 将合成素材 ZIP 展开到本机测试目录。先按 `SHA256SUMS.txt` 用 `Get-FileHash -Algorithm SHA256` 核对四份原件。在测试账户的知页中新建测试页。[合成素材](../.verify/a06-current/a06-synthetic-inputs.zip) [ZIP SHA-256](../.verify/a06-current/a06-synthetic-inputs.zip.sha256)
@@ -145,6 +189,14 @@ node .\scripts\verify-desktop.mjs $installed --installed --keyboard --scratch 'C
 2. 打开图片，再打开 PDF 并翻到第 2 页，核对「赤铜配比」字样。用正文工具栏「插入 → 附件块」引用 `original.bin`，等「已保存」。在附件列表改名为 `renamed.bin`，从正文块打开它，检查「此文件可另存为原件」提示。
 3. 用系统另存面板将原件写到工作空间目录之外，核对输出与 `original.bin` 的 SHA-256。退出再重开安装版，重新打开正文块与附件列表。[0.33.0 原生验证结果](../.verify/a06-current/native-summary.json)
 4. 在独立的容量受限本机测试卷上，通过进程的 `ZHIYE_DATA_DIR` 指向合成工作空间。把输入原件放在另一个卷。将测试卷的可用空间控制在 4 MiB 左右，选择约 16 MiB 的 `retry-after-space.bin`，记录空间不足提示和原有附件。释放测试卷空间后重选同一个文件，确认附件和正文引用均可重开。将重试得到的原件另存并核对哈希。[本轮容量和状态证据](../.verify/a06-current/native-summary.json)
+
+## K16 通用导出与离线阅读
+
+当前 Windows 交接件的常规安装器已在断网 Windows 10 实装复跑 Markdown、HTML、整库 CSV 和视图 CSV。搬移后的 HTML 通过浏览器离线读回，导出的源块链接可在知页定位。缺失原件时保留既有 CSV、报告及配套原件。[当前批次通用导出复验](../.verify/windows-current-export-0514/复验.md)
+
+当前常规安装器也已实装复验 Markdown 批量导入、CSV 有类型追加和重复识别。把结果导出为当前内容包再合并，核对原页面及历史保留，副本的相对链接与 Wiki 链接指向各自副本，原件可按指纹取回。[当前批次导入与合并复验](../.verify/windows-current-interchange-0514/复验.md)
+
+0.50.14 常规包在断网 Windows 10 客机通过 Markdown、HTML、整库 CSV 和当前视图 CSV 的系统另存。搬移后在 Chromium 离线模式打开 HTML，可访问相对路径中的封面和原件，源块链接可在知页定位原文。整库 CSV 保留三条记录，当前视图按筛选和排序输出两条，两处原件引用共用一份副本。原件临时缺失时，导出返回错误，已有导出与配套目录保留。[0.50.14 通用导出复验](../.verify/windows-export-0514/复验.md)
 
 ## A15 迁移与导入报告
 
@@ -156,13 +208,37 @@ node .\scripts\verify-desktop.mjs $installed --installed --keyboard --scratch 'C
 2. 从同一接收分支选「Obsidian 资料库目录」，选中 `obsidian-vault`。核对报告中的同名歧义和缺页两处失配、可解析的页面链接、图片和留存的 `草图.canvas`。保存 TXT 并核对原件哈希。
 3. 从数值属性数据库的「页面操作 → 导入 CSV」选择 `csv-bad\records-sample.csv`。保存失败报告，核对未闭合引号和未新增记录。选择 `csv-good\records-sample.csv` 追加，核对两条记录及数值 `12.5`。第 3 行是无效数值，第 4 行是空标题，第 5 行的列数不足。通过报告的「查看原件」另存 CSV，核对 SHA-256。关闭原件预览，确认回到原导入报告，再保存 TXT 并核对附件 ID 和页面 ID。
 
+## A08–A14 本机集成复验
+
+当前交接件的离线安装器在 Windows 11 x64 完成授权隔离、旧保存冲突、幂等重试、撤销下载、建议审阅、HTTP／MCP 续读和计算刷新。客户端从同包冻结源码重建，六项测试通过。核对端口只绑定 127.0.0.1、正常退出后关闭，并归档两份合成草稿及独立审计。[当前批次实装](../.verify/windows-current-integrations-0514/复验.md)
+
+## A16 自动备份故障复验
+
+当前 Windows 交接件的常规安装器已复验四项自动备份故障。手动及后台任务都发布了当日替换包，从独立目录读回新增页第 2 版。状态日志被锁时保留旧包和日志，另一工作空间继续运行。到期旧包解锁后完成清理，原成功包的 ID 和哈希一致。[当前批次自动备份复验](../.verify/windows-current-backup-0514/复验.md)
+
+早期 0.50.14 常规包在断网 Windows 10 客机完成 A16 自动备份复验。手动触发和后台计划任务都替换了损坏的当日备份并保留损坏原件，两份新包均从独立目录读回新增页及修订。备份状态日志被锁时，原备份和日志字节保留，界面显示告警，另一工作空间继续备份。到期旧包解锁后完成清理，复用当天成功包且清除告警。[0.50.14 自动备份复验](../.verify/windows-backup-0514/复验.md)
+
+## A16 NAS 备份与独立恢复
+
+当前常规包实装验证真实 NAS 的手动备份、目录阻塞后的重试与复用、重启后计划备份。使用当前离线包从三个 UNC 路径分别恢复并重开第 2、3、4 版，核对正文、历史及原件，恢复空间的历史集成授权均已禁用。[当前发布件的 NAS 跨包复验](../.verify/windows-current-nas-0514/复验.md)
+
+从 0.50.14 常规安装包独立解出的应用在 Windows 11 使用真实 NAS 共享路径复验。系统文件窗口完成手动备份、配置自动目标和独立恢复。目标目录被占用时保全源数据，恢复目录后重试成功，当天再次执行复用原包。启用后台计划后重开，应用自动向另一 NAS 目录发布第 4 版。三个备份包分别恢复第 2、3、4 版，均保留块 ID、历史和原件，并禁用恢复库的集成授权。[0.50.14 NAS 备份复验](../.verify/windows-unc-0514/复验.md)
+
 ## A16 覆盖升级与独立恢复
+
+当前交接件已在断网 Windows 10 完成 0.31.0 到常规包、0.50.13 到离线包的原位覆盖。旧应用运行时两个安装器均退出 2 并保全旧安装，正常退出后同路径覆盖通过。格式 18 到 21 的两处备份阻塞、两份独立恢复、以及相邻版本覆盖后重开第 4 版均已独立核对。[当前批次覆盖升级](../.verify/windows-current-upgrade-0514/复验.md)
+
+此前的中英文常规包和离线包在旧版应用仍运行时拒绝原位覆盖并退出 2。正常退出后，常规包通过 0.31.0 的两处备份阻塞、格式迁移和两份独立恢复，离线包通过 0.50.13 的第 4 版保存及覆盖后重开。[该批中英文安装器实装复验](../.verify/windows-l10n-upgrade-0514/复验.md)
 
 0.50.14 常规包已在断网 Windows 10 客机通过 0.31.0 原位覆盖、两种备份阻塞保全源库、格式 18 到 21 升级及两份独立恢复。0.50.13 常规版保存第 4 版后原位覆盖到 0.50.14 离线版，安装前后 SQLite 指纹一致，重开读回同一修订和原件。[0.50.14 验收记录](../.verify/windows-upgrade-0514/复验.md)
 
 0.50.13 常规包已在断网 Windows 10 客机跑通本节的 0.31.0 覆盖、两种升级备份阻塞、格式 18 到 21 迁移及两份独立恢复。离线包另通过 0.50.12 原位覆盖。[同版验收报告](../.verify/windows-upgrade-0513/复验.md)
 
-在专用 Windows 测试账户中使用同一安装位置覆盖升级，记录两次安装的退出状态、应用路径、文件版本和 SHA-256。本节当前候选为 0.50.14，旧版基线为 0.31.0。安装程序和应用均未签名。覆盖后额外核对安装目录中的旧动态加载器已清理。0.50.1 实测过两处备份故障、格式 18 到 21 的数据升级和系统窗口恢复前后两包。[0.31.0 安装包](../artifacts/Zhiye-0.31.0-win-x64-setup.exe) [0.31.0 SHA-256](../artifacts/Zhiye-0.31.0-win-x64-setup.exe.sha256) [0.50.14 安装包](../artifacts/Zhiye-0.50.14-win-x64-setup.exe) [0.50.14 SHA-256](../artifacts/Zhiye-0.50.14-win-x64-setup.exe.sha256) [0.50.1 安装覆盖](../.verify/windows-install-0501/复验.md#覆盖升级与独立恢复)
+当前验收 ZIP 的离线包、0.31.0 和当前常规包已完成 A16 实装回滚。第 4 版资料另存后，卸载遇到权限拒绝时保留登记和全部合成文件。权限恢复后正常卸载，旧版在独立副本拒读格式 21，并独立恢复格式 18。返回常规包后，原库和新恢复库均读回第 4 版、四条修订及两份原件。[当前发布件的卸载故障与回滚](../.verify/windows-uninstall-rollback-0514/复验.md)
+
+Windows 11 依次实装 0.50.14、0.31.0、0.50.14。升级后保存第 4 版和新增原件，卸载前另存整库包。0.31.0 拒读格式 21 副本，拒读前后 SHA-256 一致，独立恢复格式 18 旧包并重开读回第 2 版。重装 0.50.14 后，原库和独立恢复库均读回第 4 版、四条修订和两份原件。[0.50.14 保护已升级资料的回滚演练](../.verify/windows-rollback-0514/复验.md)
+
+在专用 Windows 测试账户中使用同一安装位置覆盖升级，记录两次安装的退出状态、应用路径、文件版本和 SHA-256。本节当前候选为 0.50.14，旧版基线为 0.31.0。安装程序和应用均未签名。覆盖后额外核对安装目录中的旧动态加载器已清理。0.50.1 实测过两处备份故障、格式 18 到 21 的数据升级和系统窗口恢复前后两包。[0.31.0 安装包](../artifacts/Zhiye-0.31.0-win-x64-setup.exe) [0.31.0 SHA-256](../artifacts/Zhiye-0.31.0-win-x64-setup.exe.sha256) [0.50.14 中英文常规包](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe) [0.50.14 SHA-256](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe.sha256) [0.50.1 安装覆盖](../.verify/windows-install-0501/复验.md#覆盖升级与独立恢复)
 
 ### 准备独立的升级资料
 
@@ -250,7 +326,17 @@ cargo.exe test --offline --locked -p zhiye-core --lib same_length_corrupt_snapsh
 
 退出应用，断开外网并保留 `127.0.0.1`，记录实际隔离方式。重新启动安装版，创建、编辑、重开并搜索页面，核对六视图中的同一条记录，导入原件及预览 PDF 第 2 页。完成整库包的独立恢复，再启用本机 API。用 SDK 和 MCP 读取合成的授权内容并复查拒绝授权范围外的内容。关闭应用后复核监听已停。脚本的 `blockedExternalRequests` 记录 WebView2 在验收中的外部请求观察结果，实际断网结果写入同一轮记录。[离线运行流程](离线构建与验收.md#离线运行验收) [本机接口复验](本机API.md#从源码复验)
 
+0.50.14 SDK 和 MCP 在断网 Windows 10 客机从冻结源码构建，6 项客户端和契约测试通过。同版离线包实装通过 A08–A14，覆盖授权隔离、并发保存、幂等重试、授权撤销与下载中断、建议审阅、真实 MCP 及派生属性刷新。编目期间三条变更回放后五页一致，重开从旧游标读到唯一未消费事件。应用监听仅绑定 127.0.0.1，关闭后端口拒绝连接。[0.50.14 离线实装](../.verify/windows-integrations-0514/复验.md)
+
+## A01、A04、A05、A07 与 A15 离线资料操作
+
+当前交接 ZIP 的离线安装器在 Windows 11 x64 实机完成这五项。独立核对千页库与全历史／当前内容包，确认 PDF 重建后仍定位第 2 页、Notion 中断后可重试 1,024 篇笔记，以及八份迁移报告和原件可逐项校验。[当前交接件的实装复验](../.verify/windows-current-library-0514/复验.md)
+
+0.50.14 离线包在断网 Windows 10 客机实装通过 A01、A04、A05、A07 和 A15。千页资料库编辑、移动、重开和独立恢复后核对 1,000 页、980 个块及 2,006 条修订。六视图显示同一条记录，删除画廊后重开保留其余五视图。全文搜索和属性筛选精确定位原块及 PDF 第 2 页。完整历史与当前内容包分别恢复 25 条和 8 条修订，损坏原件被拒绝。迁移取消和进程中断均未发布笔记，重试发布 1,024 篇。[0.50.14 离线资料库复验](../.verify/windows-library-0514/复验.md)
+
 ## 固定数据与压力复验
+
+实体 16 GiB 参考机可从 [A18 独立验收 ZIP](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-windows-a18.zip) 启动。包内入口校验硬件及安装器，在本机 SSD 生成固定资料和压力库。用 `-ScratchRoot` 指定已有本机工作目录后，结果仍写到指定的证据目录。[运行说明](Windows交接验收.md#16-gib-参考机性能验收) [SHA-256](../artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-windows-a18.zip.sha256)
 
 在 Windows 参考机用待测版本的锁定源码运行以下命令。把 `C:\zhiye-acceptance-050` 换成本机 SSD 上尚不存在的结果目录。性能流程使用带探针的 Debug 构建。编译完成后单独开始测量，避免构建和桌面交互占用同一台机器。
 

@@ -2,7 +2,7 @@
 
 import type { Editor } from '@tiptap/react';
 import type { Node } from '@tiptap/pm/model';
-import { GripVertical } from 'lucide-react';
+import { GripVertical, Plus } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { blockMove, blocksAt, moveBlock } from './block-move';
 import type { MovableBlock } from './block-move';
@@ -38,21 +38,25 @@ function dropGap(rows: Element[], y: number) {
   return first;
 }
 
-export function BlockDrag({ editor, disabled, onMove }: {
+export function BlockDrag({ editor, disabled, onMove, onMenu }: {
   editor: Editor | null;
   disabled: boolean;
   onMove(index: number): void;
+  /** A click on the grip without dragging opens the block menu, as in Notion. */
+  onMenu?(block: MovableBlock, grip: DOMRect, doc: Node): void;
 }) {
   const outerRef = useRef<HTMLSpanElement>(null);
   const innerRef = useRef<HTMLSpanElement>(null);
   const lineRef = useRef<HTMLSpanElement>(null);
+  const addRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     const outer = outerRef.current;
     const inner = innerRef.current;
     const line = lineRef.current;
+    const add = addRef.current;
     const surface = outer?.parentElement;
-    if (!editor || !outer || !inner || !line || !surface || disabled) return;
+    if (!editor || !outer || !inner || !line || !add || !surface || disabled) return;
     const view = editor.view;
     const scroll = surface.closest<HTMLElement>('.document-scroll');
     const hovered = new Map<HTMLElement, MovableBlock>();
@@ -65,6 +69,7 @@ export function BlockDrag({ editor, disabled, onMove }: {
       hoveredDocument = undefined;
       outer!.hidden = true;
       inner!.hidden = true;
+      add!.hidden = true;
     }
 
     function cancel() {
@@ -153,6 +158,7 @@ export function BlockDrag({ editor, disabled, onMove }: {
         const row = rect && event.clientY >= rect.top && event.clientY <= rect.bottom ? rect : undefined;
         if (block && row) hovered.set(grip, block);
         placeGrip(grip, row, bounds);
+        if (grip === outer) placeGrip(add!, row, bounds);
       }
     }
 
@@ -189,7 +195,12 @@ export function BlockDrag({ editor, disabled, onMove }: {
       active.x = event.clientX;
       active.y = event.clientY;
       const point = destination(active);
+      const grip = active.grip.getBoundingClientRect();
       cancel();
+      if (!active.started) {
+        if (view.state.doc === active.doc) onMenu?.(active.block, grip, active.doc);
+        return;
+      }
       if (point) {
         const moved = moveBlock(view, active.block, point.gap);
         if (moved !== undefined) {
@@ -199,6 +210,23 @@ export function BlockDrag({ editor, disabled, onMove }: {
       }
     }
 
+    // Like Notion's "+": start a new block below the hovered one with the insert menu open.
+    function addBelow(event: MouseEvent) {
+      const block = hovered.get(outer!);
+      if (!block || drag || !view.editable || view.composing || hoveredDocument !== view.state.doc) return;
+      event.preventDefault();
+      const node = view.state.doc.nodeAt(block.position);
+      if (!node) return;
+      if (node.type.name === 'paragraph' && node.content.size === 0) {
+        editor!.chain().focus().insertContentAt(block.position + 1, '/').run();
+      } else {
+        const at = block.position + node.nodeSize;
+        editor!.chain().focus()
+          .insertContentAt(at, { type: 'paragraph', content: [{ type: 'text', text: '/' }] })
+          .setTextSelection(at + 2).run();
+      }
+      hideGrips();
+    }
     function pointerOut() { if (!drag) hideGrips(); }
     function pointerCancel(event: PointerEvent) { if (drag?.pointer === event.pointerId) cancel(); }
     function escape(event: KeyboardEvent) {
@@ -212,6 +240,8 @@ export function BlockDrag({ editor, disabled, onMove }: {
     const options = { signal: listeners.signal };
     surface.addEventListener('pointermove', pointerMove, options);
     surface.addEventListener('pointerdown', pointerDown, options);
+    add.addEventListener('click', addBelow, options);
+    add.addEventListener('mousedown', (event) => event.preventDefault(), options);
     surface.addEventListener('pointerup', pointerUp, options);
     surface.addEventListener('pointerleave', pointerOut, options);
     surface.addEventListener('pointercancel', pointerCancel, options);
@@ -222,11 +252,12 @@ export function BlockDrag({ editor, disabled, onMove }: {
       cancel();
       listeners.abort();
     };
-  }, [editor, disabled, onMove]);
+  }, [editor, disabled, onMove, onMenu]);
 
   return <>
-    <span ref={outerRef} className="block-drag-handle block-drag-outer" hidden aria-hidden="true"><GripVertical size={16} /></span>
-    <span ref={innerRef} className="block-drag-handle block-drag-inner" hidden aria-hidden="true"><GripVertical size={16} /></span>
+    <span ref={addRef} className="block-drag-handle block-add-handle" hidden aria-hidden="true" title="在下方插入"><Plus size={16} /></span>
+    <span ref={outerRef} className="block-drag-handle block-drag-outer" hidden aria-hidden="true" title="拖动移块，点击打开菜单"><GripVertical size={16} /></span>
+    <span ref={innerRef} className="block-drag-handle block-drag-inner" hidden aria-hidden="true" title="拖动移块，点击打开菜单"><GripVertical size={16} /></span>
     <span ref={lineRef} className="block-drop-line" hidden aria-hidden="true" />
   </>;
 }

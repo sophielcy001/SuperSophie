@@ -385,7 +385,7 @@ impl Access {
     }
 
     fn by_id(db: &Connection, id: &str) -> Result<Option<Self>> {
-        Self::load(db, "id", &id)
+        Self::load(db, "id", id)
     }
 
     fn load(db: &Connection, column: &str, value: impl rusqlite::ToSql) -> Result<Option<Self>> {

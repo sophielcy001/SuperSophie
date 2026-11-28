@@ -649,6 +649,22 @@ fn persisted_filter_and_sort_page_through_one_set_of_records() {
     let first = store
         .query_records(&space, &schema.id, &table.id, 0)
         .unwrap();
+    let within_first = store
+        .query_records(&space, &schema.id, &table.id, first.page_size - 1)
+        .unwrap();
+    assert_eq!((within_first.offset, within_first.total), (0, first.total));
+    assert_eq!(
+        within_first
+            .records
+            .iter()
+            .map(|item| &item.id)
+            .collect::<Vec<_>>(),
+        first
+            .records
+            .iter()
+            .map(|item| &item.id)
+            .collect::<Vec<_>>()
+    );
     let next = store
         .query_records(&space, &schema.id, &table.id, first.page_size)
         .unwrap();

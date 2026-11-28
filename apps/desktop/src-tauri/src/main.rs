@@ -15,6 +15,8 @@ mod macos;
 #[cfg(feature = "performance-probe")]
 mod performance;
 mod starter;
+mod sync;
+mod web_title;
 
 use files::{PageExportResult, chosen_path, file_stem, write_export, write_page_document};
 use std::path::PathBuf;
@@ -75,6 +77,7 @@ async fn run<T: Send + 'static>(
             let opened = Arc::new(opened);
             derived_jobs::start(&opened);
             backup::start(&opened, app.clone());
+            sync::start(app.clone());
             state.store = Some(opened);
         }
         job(state.store.as_ref().expect("store was initialized"))
@@ -537,6 +540,7 @@ fn main() {
                 state: Mutex::new(OpenStore::default()),
             });
             app.manage(integrations::ApiState::default());
+            app.manage(sync::SyncState::default());
             app.manage(files::MigrationState::default());
             locations::install(app)?;
             #[cfg(target_os = "macos")]
@@ -592,8 +596,17 @@ fn main() {
             collections::upsert_collection_view,
             collections::delete_collection_view,
             collections::move_scheduled_record,
+            collections::resize_scheduled_record,
             collections::save_record,
             backup::backup_status,
+            sync::sync_overview,
+            sync::register_sync_device,
+            sync::forget_sync_device,
+            sync::enable_workspace_sync,
+            sync::disable_workspace_sync,
+            sync::sync_workspace_now,
+            sync::list_remote_workspaces,
+            sync::join_remote_workspace,
             backup::set_backup_policy,
             backup::choose_backup_directory,
             backup::run_workspace_backup,
@@ -643,6 +656,7 @@ fn main() {
             export_markdown,
             export_html,
             open_web_link,
+            web_title::fetch_web_title,
         ])
         .run(tauri::generate_context!())
         .expect("Could not start Zhiye");

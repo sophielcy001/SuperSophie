@@ -252,8 +252,8 @@ export async function verifyKeyboard({ page, invoke, origin, reportDir }) {
     await page.keyboard.type('/');
     const list = page.locator('.slash-menu');
     await list.waitFor({ timeout: 2000 });
-    await press('ArrowDown');
-    await press('ArrowDown');
+    // Notion's order: 正文, 页面, then the headings.
+    for (let step = 0; step < 3; step++) await press('ArrowDown');
     assert.equal(await list.locator('.highlighted').innerText({ timeout: 2000 }), '一级标题');
     await press('Enter');
     await list.waitFor({ state: 'hidden' });
@@ -338,6 +338,9 @@ export async function verifyKeyboard({ page, invoke, origin, reportDir }) {
     await press('Escape');
     await modal.waitFor({ state: 'hidden' });
     await button('退出专注模式').waitFor();
+    // As in Notion, the first Esc in the editor selects the block; the next one leaves focus mode.
+    await press('Escape');
+    await body.locator('.ProseMirror-selectednode').waitFor({ timeout: 2000 });
     await page.evaluate(() => {
       window.lastFocusKey = null;
       window.addEventListener('keydown', (event) => {

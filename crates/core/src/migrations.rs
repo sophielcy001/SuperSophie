@@ -4,7 +4,7 @@ use crate::{Error, Result, Store};
 use rusqlite::{Connection, MAIN_DB, OpenFlags, Transaction, TransactionBehavior};
 use std::{fs, path::Path};
 
-pub(crate) const VERSION: u32 = 21;
+pub(crate) const VERSION: u32 = 22;
 
 pub(crate) fn version(db: &Connection) -> Result<u32> {
     Ok(db.query_row("PRAGMA user_version", [], |row| row.get(0))?)
@@ -32,6 +32,7 @@ pub(crate) fn apply(tx: &Transaction<'_>, current: u32, target: u32) -> Result<(
         migrate_v18,
         migrate_v19,
         migrate_v20,
+        crate::sync::migrate,
     ];
     if current == 0 || current > target || target > VERSION {
         return Err(Error::new(

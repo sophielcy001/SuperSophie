@@ -187,6 +187,16 @@ try {
   const count = (value) => page.getByText(`共 ${value} 条记录`, { exact: true }).waitFor();
   const table = () => page.getByRole('table');
   const save = () => page.keyboard.press('Control+s');
+  // The format bar floats over a selection; Alt+F10 opens it from the caret.
+  const formatBar = async () => {
+    if (await page.locator('.format-bar').isVisible()) return;
+    if (!await body().evaluate((node) => node === document.activeElement)) await body().focus();
+    await page.keyboard.press('Alt+F10');
+    await page.locator('.format-bar').waitFor();
+  };
+  const historyKey = process.platform === 'darwin' ? 'Meta' : 'Control';
+  const undo = async () => { await body().focus(); await page.keyboard.press(`${historyKey}+z`); };
+  const redo = async () => { await body().focus(); await page.keyboard.press(`${historyKey}+Shift+z`); };
   const title = () => field('页面标题');
   const breadcrumb = () => page.getByRole('navigation', { name: '页面位置' });
 
@@ -237,7 +247,7 @@ try {
   await field('评分', dialog()).fill('0');
   await button('保存', dialog()).click();
   await button('M2 阅读清单', breadcrumb()).click();
-  await button('SQLite 事务', table()).waitFor();
+  await button(`编辑「SQLite 事务」的标题`, table()).waitFor();
   await table().getByText('进行中', { exact: true }).waitFor();
   await table().getByText('0', { exact: true }).waitFor();
   checks.push('记录页编辑正文与属性，表格显示零值');
@@ -259,9 +269,20 @@ try {
   checks.push('同一记录在表格、看板、列表与记录页一致');
 
   await button('M2 阅读清单', breadcrumb()).click();
-  await button('新建记录').click();
-  await title().fill('另一篇笔记');
+  await button('看板').click();
+  await button('在「待处理」中新建记录').click();
+  // Like Notion, the new card waits for its title in the column instead of opening its page.
+  await field('记录标题', page.getByRole('region', { name: '待处理', exact: true })).fill('另一篇笔记');
+  await page.keyboard.press('Enter');
+  const pendingLane = page.getByRole('region', { name: '待处理', exact: true });
+  await button('另一篇笔记', pendingLane).waitFor();
+  // Dragging a card into another column changes its status.
+  await button('另一篇笔记', pendingLane).dragTo(page.getByRole('region', { name: '进行中', exact: true }));
+  await button('另一篇笔记', page.getByRole('region', { name: '进行中', exact: true })).waitFor();
+  await button('另一篇笔记', page.getByRole('region', { name: '进行中', exact: true })).click();
+  await page.getByRole('region', { name: '记录属性' }).getByText('进行中', { exact: true }).waitFor();
   await button('M2 阅读清单', breadcrumb()).click();
+  checks.push('看板列底部新建的卡片原地输入标题并带上该列状态，拖到别的列即改状态');
   await button('表格').click();
   await count(2);
   await button('视图设置').click();
@@ -275,7 +296,7 @@ try {
   await page.getByRole('heading', { name: '已完成', exact: true }).waitFor();
   await page.reload();
   await count(1);
-  await button('SQLite 事务', table()).waitFor();
+  await button(`编辑「SQLite 事务」的标题`, table()).waitFor();
   await page.getByText('评分 降序', { exact: true }).waitFor();
   await button('列表').click();
   await count(2);
@@ -481,6 +502,7 @@ try {
   await title().fill('图文验收页');
   await save();
   const insert = async (name) => {
+    await formatBar();
     await button('插入').click();
     await button(name, page.locator('.insert-menu')).click();
   };
@@ -506,9 +528,9 @@ try {
   await editedTable.locator('td').last().click();
   await page.keyboard.insertText('北岸观测点');
   await save();
-  await button('撤销').click();
+  await undo();
   await editedTable.getByText('北岸观测点').waitFor({ state: 'hidden' });
-  await button('重做').click();
+  await redo();
   await editedTable.getByText('北岸观测点').waitFor();
   await placeAfterBlocks();
   async function pasteData(mime, text) {
@@ -531,6 +553,7 @@ try {
   checks.push('正文表格可改行列，支持中文内容、撤销重做、HTML 合并单元格和制表符数据粘贴');
 
   await placeAfterBlocks();
+  await formatBar();
   await button('网页链接').click();
   await field('网址', dialog()).fill('javascript:1');
   await button('保存链接', dialog()).click();
@@ -845,11 +868,11 @@ try {
   await locateBlock(initialLead).click({ position: { x: 15, y: 9 } });
   await page.keyboard.insertText('新字');
   assert.match(JSON.stringify((await savedDocument(moveDocument)).blocks[3]), /新字/);
-  await button('撤销').click();
+  await undo();
   assert.deepEqual((await savedDocument(moveDocument)).blocks, rootMoved);
-  await button('撤销').click();
+  await undo();
   assert.deepEqual((await savedDocument(moveDocument)).blocks, moveDocument.blocks);
-  await button('重做').click();
+  await redo();
   assert.deepEqual((await savedDocument(moveDocument)).blocks, rootMoved);
   checks.push('指针拖动整块，保存保留图片附件、表格、未知块与中文标记，移动和后续输入可分别撤销');
 
@@ -865,7 +888,7 @@ try {
   const draggedTasks = { ...initialTasks, children: [itemC, itemB, itemA] };
   assert.deepEqual((await savedDocument(moveDocument)).blocks, [initialTable, draggedTasks, ...rootMoved.slice(2)]);
   await placeCaret(initialTable.children[0].children[0].children[0]);
-  await button('下移块').click();
+  await page.keyboard.press('Alt+Shift+ArrowDown');
   const sortedMixed = [draggedTasks, initialTable, ...rootMoved.slice(2)];
   const beforeCancel = await savedDocument(moveDocument);
   assert.deepEqual(beforeCancel.blocks, sortedMixed);
@@ -1309,7 +1332,7 @@ try {
   await field('反向属性名称', dialog()).fill('来自任务');
   await button('创建属性', dialog()).click();
   await table().getByRole('columnheader', { name: '项目证据' }).waitFor();
-  await button('关联任务甲', table()).click();
+  await button(`打开「关联任务甲」`, table()).click();
   await button('编辑属性').click();
   await dialog().getByText('添加关联', { exact: true }).click();
   await field('查找「项目证据」的关联记录', dialog()).fill('目标乙');
@@ -1327,7 +1350,7 @@ try {
   const beforeArchive = await invoke('read_page', { workspace, id: relationTarget.id });
   await invoke('archive_pages', { workspace, pages: [{ id: relationTarget.id, revision: beforeArchive.revision }] });
   await deliver(`zhiye://open/workspaces/${workspace}/pages/${left.containerPageId}`);
-  await button('关联任务甲', table()).click();
+  await button(`打开「关联任务甲」`, table()).click();
   await recordPanel.getByText('部分关联不可用', { exact: true }).waitFor();
   assert.equal(await button('关联目标乙', recordPanel).count(), 0);
   await button('编辑属性').click();
@@ -1336,7 +1359,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.document-title')?.value === '关联任务已改名');
   await invoke('restore_pages', { workspace, pages: [{ id: relationTarget.id, revision: beforeArchive.revision + 1 }] });
   await deliver(`zhiye://open/workspaces/${workspace}/pages/${left.containerPageId}`);
-  await button('关联任务已改名', table()).click();
+  await button(`打开「关联任务已改名」`, table()).click();
   await button('关联目标乙', recordPanel).waitFor();
   assert.equal((await invoke('read_page', { workspace, id: relationTask.id })).title, '关联任务已改名');
   checks.push('关联目标归档时隐去标题，编辑普通属性保留关联，恢复后可再打开');
@@ -1347,7 +1370,7 @@ try {
   await field('属性类型', dialog()).selectOption('number');
   await button('创建属性', dialog()).click();
   await table().getByRole('columnheader', { name: '计划工时' }).waitFor();
-  await button('关联目标乙', table()).click();
+  await button(`打开「关联目标乙」`, table()).click();
   await button('编辑属性').click();
   await field('计划工时', dialog()).fill('4');
   await button('保存', dialog()).click();
@@ -1415,7 +1438,7 @@ try {
   await table().getByText('12', { exact: true }).waitFor();
   checks.push('外部写入刷新已打开的表格及派生字段，其他工作空间的通知不重复读取当前视图');
 
-  await button('关联任务已改名', table()).click();
+  await button(`打开「关联任务已改名」`, table()).click();
   await recordPanel.getByText('12', { exact: true }).waitFor();
   await button('编辑属性', recordPanel).click();
   const pendingTitle = field('标题', dialog());
@@ -1577,13 +1600,41 @@ try {
   await button('日历', viewbar).click();
   await field('跳转日期').fill('2026-11-16');
   const scheduledCard = dateCell('2026-11-16').locator('.calendar-event').filter({ hasText: '全天研究' });
+  const cellWidth = (await boundsFor(dateCell('2026-11-16'))).width;
   await scheduledCard.dragTo(dateCell('2026-11-20'));
   await button('全天研究', dateCell('2026-11-20')).waitFor();
   assert.equal((await invoke('read_record', { workspace: scheduleSpace, collection: projectId, id: research.id }))
     .properties[scheduleFields['起始日期']], '2026-11-20');
+  // Dragging the right edge lengthens the record, as in Notion. This calendar had no end property, so the
+  // existing 「结束日期」 becomes its end, and the record is one bar across its days.
+  const movedCard = dateCell('2026-11-20').locator('.calendar-event').filter({ hasText: '全天研究' });
+  await movedCard.locator('.schedule-edge.end').dragTo(dateCell('2026-11-22'));
+  for (let attempt = 0; ; attempt++) {
+    const stored = await invoke('read_record', { workspace: scheduleSpace, collection: projectId, id: research.id });
+    if (stored.properties[scheduleFields['结束日期']] === '2026-11-22') {
+      assert.equal(stored.properties[scheduleFields['起始日期']], '2026-11-20');
+      break;
+    }
+    if (attempt >= 40) await page.screenshot({ path: join(reportDir, 'calendar-resize-failed.png') });
+    assert.ok(attempt < 40, '拖动右边缘后结束日期未保存：' + JSON.stringify(stored.properties) + ' '
+      + (await page.getByRole('alert').allInnerTexts()).join(' / '));
+    await page.waitForTimeout(100);
+  }
+  await page.waitForFunction((width) => {
+    const bar = [...document.querySelectorAll('section[data-day="2026-11-20"] .calendar-event')].find((item) => item.textContent.includes('全天研究'));
+    return bar && bar.getBoundingClientRect().width > width * 2.5;
+  }, cellWidth).catch(async (error) => {
+    console.error(await page.evaluate(() => [...document.querySelectorAll('.calendar-event')].map((bar) =>
+      bar.closest('section')?.dataset.day + ' ' + bar.getAttribute('style') + ' ' + bar.getBoundingClientRect().width + ' ' + bar.textContent).join('\n')));
+    console.error(await page.locator('.schedule-field-label').allInnerTexts());
+    throw error;
+  });
+  const calendarLayout = (await invoke('read_collection', { workspace: scheduleSpace, collection: projectId }))
+    .views.find((item) => item.type === 'calendar').layout;
+  assert.equal(calendarLayout.endField, scheduleFields['结束日期']);
   await button('未排期').click();
   await button('带时区会议', page.getByRole('region', { name: '数据库记录' })).waitFor();
-  checks.push('日历按全天日期显示和拖动原属性，未排期记录仍可打开');
+  checks.push('日历按全天日期显示和拖动原属性，拖右边缘延长为跨天整条并沿用「结束日期」，未排期记录仍可打开');
 
   await button('新建视图', viewbar).click();
   await field('视图名称', dialog()).fill('跨时区日历');
@@ -1600,23 +1651,38 @@ try {
   await page.screenshot({ path: join(reportDir, 'calendar.png') });
   checks.push('同类型日历各自保存设置，带时区日期按 UTC 投影且拖动保留原偏移');
 
+  await button('在 2026-11-21 新建记录').click();
+  await field('记录标题', dateCell('2026-11-21')).fill('日历新建会议');
+  await page.keyboard.press('Enter');
+  await button('日历新建会议', dateCell('2026-11-21')).click();
+  await page.getByRole('region', { name: '记录属性' }).getByText('2026-11-21T00:00:00+00:00').waitFor();
+  await button('日程总览', breadcrumb()).click();
+  await field('跳转日期').fill('2026-11-16');
+  await button('日历新建会议', dateCell('2026-11-21')).waitFor();
+  checks.push('在日历某天新建记录并原地输入标题，带时区日期属性预填当天 UTC 零点');
+
   await button('时间线', viewbar).click();
   await field('跳转日期').fill('2026-11-18');
   await field('时间线缩放').selectOption('week');
   const track = page.getByRole('region', { name: '时间线', exact: true });
-  const bar = track.getByRole('img', { name: '2026-11-20 至 2026-11-24' });
+  const bar = track.getByRole('img', { name: '2026-11-20 至 2026-11-22' });
   const rail = bar.locator('xpath=..');
   const railBounds = await boundsFor(rail);
   await bar.dragTo(rail, { sourcePosition: { x: 8, y: 10 },
     targetPosition: { x: Math.round(railBounds.width * 5.5 / 7), y: 14 } });
-  await track.getByRole('img', { name: '2026-11-23 至 2026-11-27' }).waitFor();
+  const movedBar = track.getByRole('img', { name: '2026-11-23 至 2026-11-25' });
+  await movedBar.waitFor();
+  // Dragging a bar's left edge moves only its start (the bar runs past this week, so its right edge is hidden).
+  assert.equal(await movedBar.locator('.schedule-edge.end').count(), 0);
+  await movedBar.locator('.schedule-edge.start').dragTo(movedBar.locator('xpath=..'), { targetPosition: { x: Math.round(railBounds.width * 3.5 / 7), y: 14 } });
+  await track.getByRole('img', { name: '2026-11-21 至 2026-11-25' }).waitFor();
   await page.screenshot({ path: join(reportDir, 'timeline.png') });
   await button('画廊', viewbar).click();
   await page.getByRole('img', { name: '海湾.png', exact: true }).waitFor();
   await page.screenshot({ path: join(reportDir, 'gallery.png') });
   await button('全天研究', page.getByRole('list', { name: '画廊' })).click();
   await page.waitForFunction(() => document.querySelector('.document-title')?.value === '全天研究');
-  checks.push('时间线缩放与拖动延续起止区间，画廊加载同一记录自有图片并打开原页');
+  checks.push('时间线缩放与拖动延续起止区间，拖左边缘只改开始日期，画廊加载同一记录自有图片并打开原页');
 
   const otherCover = await invoke('attach_image_bytes', {
     workspace: scheduleSpace, page: research.id, name: '手选封面.png', bytes: [...await readFile(imageFixture)],
@@ -1634,8 +1700,9 @@ try {
 
   await deliver(scheduleLocation(memo.id));
   await page.waitForFunction(() => document.querySelector('.document-title')?.value === '排期嵌入页');
+  await formatBar();
   await button('插入').click();
-  await button('数据库视图', page.locator('.insert-menu')).click();
+  await button('关联已有数据库', page.locator('.insert-menu')).click();
   await field('选择数据库', dialog()).selectOption({ label: '日程总览' });
   await field('选择保存视图', dialog()).selectOption({ label: '跨时区日历' });
   await button('插入视图', dialog()).click();
@@ -1660,10 +1727,108 @@ try {
   await page.getByRole('button', { name: '跨时区日历', pressed: true }).waitFor();
   await button('视图设置').click();
   await button('删除视图', dialog()).click();
-  await button(changedMeetingTitle, table()).waitFor();
+  await button(`编辑「${changedMeetingTitle}」的标题`, table()).waitFor();
   await deliver(scheduleLocation(memo.id));
-  await embed.getByText('此视图暂不可用。', { exact: true }).waitFor();
+  // The embedded view was deleted; like Notion, the block keeps showing the database in its first view.
+  await embed.getByRole('button', { name: '表格', pressed: true }).waitFor();
   checks.push('正文嵌入保存视图并可打开原视图，删除视图后保留记录及嵌入块');
+
+  // Notion's "/表格视图", "/日历视图" and so on: a database made inside the page and edited there.
+  const inlineHost = async (name) => {
+    const host = await invoke('create_page', { workspace: scheduleSpace, parentId: null });
+    await invoke('save_page', { workspace: scheduleSpace, id: host.id, revision: host.revision, draft: { title: name, blocks: [] } });
+    await deliver(scheduleLocation(host.id));
+    await page.waitForFunction((expected) => document.querySelector('.document-title')?.value === expected, name);
+    await body().click();
+    return host;
+  };
+  const tableHost = await inlineHost('内嵌数据库');
+  await page.keyboard.type('/表格视图');
+  await page.keyboard.press('Enter');
+  const inlineDb = page.locator('.inline-database');
+  await inlineDb.getByRole('button', { name: '表格', pressed: true }).waitFor();
+  await button('编辑数据库名称「无标题数据库」', inlineDb).click();
+  await field('数据库名称', inlineDb).fill('读书计划');
+  await page.keyboard.press('Enter');
+  await button('编辑数据库名称「读书计划」', inlineDb).waitFor();
+  await button('新建一条', inlineDb).click();
+  await field('记录标题', inlineDb).fill('第一本书');
+  await page.keyboard.press('Enter');
+  await button('编辑「第一本书」的标题', inlineDb).waitFor();
+  await button('修改「第一本书」的状态', inlineDb).click();
+  await field('状态', inlineDb).selectOption({ label: '进行中' });
+  await inlineDb.getByRole('table').getByText('进行中', { exact: true }).waitFor();
+  await button('编辑「第一本书」的标题', inlineDb).click();
+  await field('记录标题', inlineDb).fill('第一本书（上）');
+  await page.keyboard.press('Enter');
+  await button('编辑「第一本书（上）」的标题', inlineDb).waitFor();
+  await button('日历', inlineDb).click();
+  await inlineDb.getByRole('button', { name: '日历', pressed: true }).waitFor();
+  await save();
+  const inlineSaved = await invoke('read_page', { workspace: scheduleSpace, id: tableHost.id });
+  const inlineBlock = inlineSaved.blocks.find((block) => block.type === 'collectionView');
+  const inlineSchema = await invoke('read_collection', { workspace: scheduleSpace, collection: inlineBlock.payload.collectionId });
+  assert.equal(inlineSchema.views.find((item) => item.id === inlineBlock.payload.viewId).type, 'calendar');
+  const inlineContainer = await invoke('read_page', { workspace: scheduleSpace, id: inlineSchema.containerPageId });
+  assert.equal(inlineContainer.title, '读书计划');
+  assert.equal(inlineContainer.parentId, tableHost.id);
+  const inlineRows = await invoke('list_records', {
+    workspace: scheduleSpace, collection: inlineSchema.id, view: inlineSchema.views.find((item) => item.type === 'table').id, offset: 0,
+  });
+  assert.deepEqual(inlineRows.records.map((record) => [record.title, inlineSchema.properties[0].options.find((option) => option.id === record.properties[inlineSchema.properties[0].id])?.name]),
+    [['第一本书（上）', '进行中']]);
+  await page.screenshot({ path: join(reportDir, 'inline-database.png') });
+  checks.push('斜杠「表格视图」在页内新建数据库，名称、新行标题与单元格原地编辑，切换视图随页面保存');
+
+  const calendarHost = await inlineHost('内嵌日历');
+  await page.keyboard.type('/日历视图');
+  await page.keyboard.press('Enter');
+  const inlineCalendar = page.locator('.inline-database');
+  await inlineCalendar.getByRole('button', { name: '日历', pressed: true }).waitFor();
+  await inlineCalendar.getByText('按「日期」', { exact: true }).waitFor();
+  const today = await page.evaluate(() => {
+    const now = new Date();
+    return [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part, index) => String(part).padStart(index ? 2 : 4, '0')).join('-');
+  });
+  const tomorrow = new Date(Date.parse(today + 'T00:00:00Z') + 86_400_000).toISOString().slice(0, 10);
+  const inlineDay = (day) => inlineCalendar.getByRole('region', { name: day, exact: true });
+  await button(`在 ${today} 新建记录`, inlineCalendar).click();
+  await field('记录标题', inlineDay(today)).fill('两天的活动');
+  await page.keyboard.press('Enter');
+  await button('两天的活动', inlineDay(today)).waitFor();
+  // Released over the bar itself, which by then reaches the next day.
+  const inlineEdge = inlineDay(today).locator('.calendar-event .schedule-edge.end');
+  const tomorrowBox = await boundsFor(inlineDay(tomorrow));
+  const barBox = await boundsFor(inlineDay(today).locator('.calendar-event'));
+  await inlineEdge.hover();
+  await page.mouse.down();
+  await page.mouse.move(tomorrowBox.x + tomorrowBox.width / 2, barBox.y + barBox.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForFunction(() => document.querySelector('.inline-database .schedule-field-label')?.textContent.includes('→'))
+    .catch(async (error) => {
+      await page.screenshot({ path: join(reportDir, 'inline-calendar-failed.png') });
+      console.error(today, tomorrow, await page.getByRole('alert').allInnerTexts(), await inlineCalendar.locator('.calendar-event').evaluateAll((bars) =>
+        bars.map((bar) => bar.closest('section')?.dataset.day + ' ' + bar.outerHTML.slice(0, 300))));
+      throw error;
+    });
+  await inlineCalendar.getByText('按「日期 → 结束日期」', { exact: true }).waitFor();
+  await save();
+  const calendarBlock = (await invoke('read_page', { workspace: scheduleSpace, id: calendarHost.id }))
+    .blocks.find((block) => block.type === 'collectionView');
+  const calendarSchema = await invoke('read_collection', { workspace: scheduleSpace, collection: calendarBlock.payload.collectionId });
+  const [startField, endField] = ['日期', '结束日期'].map((name) => calendarSchema.properties.find((item) => item.name === name).id);
+  for (let attempt = 0; ; attempt++) {
+    const rows = await invoke('list_records', { workspace: scheduleSpace, collection: calendarSchema.id, view: calendarSchema.views[0].id, offset: 0,
+      range: { mode: 'between', from: today, through: tomorrow } });
+    const values = rows.records[0]?.properties ?? {};
+    if (values[endField] === tomorrow) {
+      assert.equal(values[startField], today);
+      break;
+    }
+    assert.ok(attempt < 40, '拖动日历条右边缘后未保存结束日期');
+    await page.waitForTimeout(100);
+  }
+  checks.push('斜杠「日历视图」新建带日期属性的日历，当天新建并输入标题，拖右边缘延长为两天并自动添加结束日期');
 
   const richBlocksPage = await invoke('create_page', { workspace: scheduleSpace, parentId: null });
   await invoke('save_page', {
@@ -1674,6 +1839,7 @@ try {
   await deliver(richBlocksUrl);
   await body().waitFor();
   const insertBlock = async (kind) => {
+    await formatBar();
     await button('插入').click();
     await button(kind, page.locator('.insert-menu')).click();
   };
@@ -1782,6 +1948,330 @@ try {
   assert.equal(await readFile(join(sandbox, 'images', attachmentBlock.payload.attachmentId + '.txt'), 'utf8'), '知页附件块原件\n');
   checks.push('重新打开保留内容块，Markdown 展平折叠并导出逐块转换说明与原件字节');
 
+  // Notion editing habits: commands mid-line, Markdown shortcuts, mentions, block menu, colors.
+  const notionPage = await invoke('create_page', { workspace: scheduleSpace, parentId: null });
+  await invoke('save_page', {
+    workspace: scheduleSpace, id: notionPage.id, revision: notionPage.revision,
+    draft: { title: 'Notion 编辑习惯', blocks: [] },
+  });
+  await deliver(scheduleLocation(notionPage.id));
+  await body().waitFor();
+  const readNotion = () => invoke('read_page', { workspace: scheduleSpace, id: notionPage.id });
+  const blockText = (block) => (block.payload.inline ?? []).filter((part) => part.type === 'text').map((part) => part.text).join('');
+  const allBlocks = (blocks) => blocks.flatMap((block) => [block, ...allBlocks(block.children)]);
+  await body().locator(':scope > p').last().click();
+  await page.keyboard.type('第一段 /h2');
+  await page.locator('.slash-menu').getByRole('button', { name: '二级标题', exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('小节');
+  await body().getByRole('heading', { name: '小节', exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('> ');
+  const notionFold = body().locator('.fold-block');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === '折叠标题');
+  await page.keyboard.type('折叠标题');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('折叠内容');
+  await notionFold.locator('.fold-body p').getByText('折叠内容', { exact: true }).waitFor();
+  const notionTail = body().locator(':scope > p').last();
+  await notionTail.click();
+  await page.keyboard.type('" ');
+  await page.keyboard.type('引用内容');
+  await body().locator('blockquote').getByText('引用内容', { exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('参见 @实验记录');
+  await page.locator('.mention-menu').getByRole('button', { name: '实验记录与原件', exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await body().locator('[data-page-reference="' + richBlocksPage.id + '"]').waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('- 列表一 /db');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('待办一');
+  await body().locator('ul[data-type="taskList"]').getByText('待办一', { exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/dm');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('let total = 1;');
+  await body().locator('.code-language').selectOption('rust');
+  checks.push('斜杠命令可在行中唤出并在下方新建块，「> 」「" 」生成折叠和引用，@ 按标题提及页面');
+
+  const heading = body().getByRole('heading', { name: '小节', exact: true });
+  await heading.hover();
+  await page.locator('.block-drag-outer').click();
+  const blockMenu = page.getByRole('menu', { name: '块操作', exact: true });
+  await blockMenu.getByRole('menuitem', { name: /^创建副本/ }).click();
+  await body().getByRole('heading', { name: '小节', exact: true }).nth(1).waitFor();
+  await page.keyboard.press('ControlOrMeta+Alt+3');
+  await body().locator('h3').getByText('小节', { exact: true }).waitFor();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Backspace');
+  await body().locator(':scope > p').getByText('小节', { exact: true }).waitFor();
+  await page.keyboard.press('Control+/');
+  await page.waitForFunction(() => document.activeElement?.closest('.block-menu'));
+  await blockMenu.getByRole('menuitem', { name: /^删除/ }).click();
+  await body().locator(':scope > p').getByText('小节', { exact: true }).waitFor({ state: 'detached' });
+  await body().getByRole('heading', { name: '小节', exact: true }).waitFor();
+  checks.push('拖动手柄单击打开块菜单，可复制、转换、删除块，⌘⌥ 数字转换类型，标题开头退格变回正文');
+
+  await body().locator(':scope > p').first().click({ clickCount: 3 });
+  await button('文字颜色').click();
+  await button('红色文字').click();
+  await button('文字颜色').click();
+  await button('黄色背景').click();
+  // ⌘K on selected text edits its link instead of opening search, as in Notion.
+  await page.keyboard.press('ControlOrMeta+k');
+  await field('网址', dialog()).fill('https://example.test/notion');
+  await button('保存链接', dialog()).click();
+  await dialog().waitFor({ state: 'detached' });
+  await body().locator('blockquote p').click({ clickCount: 3 });
+  await button('转换为，当前为引用').click();
+  await page.getByRole('group', { name: '转换为', exact: true }).getByRole('button', { name: /^三级标题/ }).click();
+  await body().getByRole('heading', { name: '引用内容', exact: true }).waitFor();
+  // The selection survives "Turn into", so formatting applies to the same text.
+  await button('行内代码').click();
+  await body().locator('h3 code').getByText('引用内容', { exact: true }).waitFor();
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  const notionSaved = await readNotion();
+  const notionBlocks = allBlocks(notionSaved.blocks);
+  assert.equal(new Set(notionBlocks.map((block) => block.id)).size, notionBlocks.length);
+  const first = notionSaved.blocks[0];
+  assert.equal(blockText(first), '第一段');
+  assert.deepEqual([...first.payload.inline[0].marks].sort((a, b) => a.type.localeCompare(b.type)), [
+    { type: 'backgroundColor', color: 'yellow' }, { type: 'link', href: 'https://example.test/notion' }, { type: 'textColor', color: 'red' },
+  ]);
+  assert.deepEqual(notionSaved.blocks.slice(1, 3).map((block) => [block.type, block.payload.level, blockText(block)]),
+    [['heading', 2, '小节'], ['toggleBlock', undefined, '']]);
+  assert.equal(notionSaved.blocks[2].payload.title, '折叠标题');
+  assert.equal(blockText(notionSaved.blocks[2].children[0]), '折叠内容');
+  const quoted = notionBlocks.find((block) => block.type === 'heading' && block.payload.level === 3);
+  assert.deepEqual(quoted.payload.inline, [{ type: 'text', text: '引用内容', marks: [{ type: 'code' }] }]);
+  assert.ok(notionBlocks.some((block) => block.payload.inline?.some((part) => part.type === 'pageReference' && part.pageId === richBlocksPage.id)));
+  const listTypes = notionSaved.blocks.filter((block) => block.type.endsWith('List')).map((block) => block.type);
+  assert.deepEqual(listTypes, ['bulletList', 'taskList']);
+  assert.deepEqual(notionBlocks.find((block) => block.type === 'codeBlock').payload, { text: 'let total = 1;', language: 'rust' });
+  const shownTitle = (text) => page.waitForFunction((text) => document.querySelector('.document-title')?.value === text, text);
+  await deliver(scheduleLocation(meeting.id));
+  await shownTitle(changedMeetingTitle);
+  await deliver(scheduleLocation(notionPage.id));
+  await shownTitle('Notion 编辑习惯');
+  await body().locator('[data-text-color="red"] [data-background-color="yellow"]').getByText('第一段', { exact: true }).waitFor();
+  await body().locator('.code-language').evaluate((select) => { if (select.value !== 'rust') throw new Error(select.value); });
+  await page.screenshot({ path: join(reportDir, 'notion-editing.png') });
+  checks.push('选中文字可设文字颜色与背景色、转换块类型和行内代码，保存重开后保留，块 ID 不重复');
+
+  await body().locator(':scope > p').last().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' /page');
+  await page.locator('.slash-menu').getByRole('button', { name: '页面', exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => document.activeElement?.matches('.document-title') && document.activeElement.value === '');
+  await page.keyboard.type('实验子页');
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  const withChild = await readNotion();
+  const childLink = allBlocks(withChild.blocks).flatMap((block) => block.payload.inline ?? [])
+    .find((part) => part.type === 'pageReference' && part.pageId !== richBlocksPage.id);
+  const child = await invoke('read_page', { workspace: scheduleSpace, id: childLink.pageId });
+  assert.equal(child.parentId, notionPage.id);
+  assert.equal(child.title, '实验子页');
+  await deliver(scheduleLocation(notionPage.id));
+  await shownTitle('Notion 编辑习惯');
+  // Like a Notion mention, the link shows the sub-page's new title and saves it with the next edit.
+  await body().getByRole('link', { name: '↗ 实验子页', exact: true }).waitFor();
+  await body().locator(':scope > p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('。');
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  const relabeled = allBlocks((await readNotion()).blocks).flatMap((block) => block.payload.inline ?? [])
+    .find((part) => part.type === 'pageReference' && part.pageId === child.id);
+  assert.equal(relabeled.label, '实验子页');
+  checks.push('斜杠「页面」新建子页并打开，返回后链接显示子页的新标题，下次保存写入新标题');
+
+  await page.keyboard.press('Control+/');
+  await blockMenu.getByRole('menuitem', { name: '颜色', exact: true }).click();
+  await page.getByRole('menu', { name: '块颜色', exact: true }).getByRole('menuitemradio', { name: '蓝色背景', exact: true }).click();
+  await body().locator(':scope > p[data-block-color="blue_background"]').first().waitFor();
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  assert.equal((await readNotion()).blocks[0].payload.color, 'blue_background');
+  checks.push('块菜单为整块设置背景色，按 Notion 的颜色名保存');
+
+  const selectedBlock = body().locator('.ProseMirror-selectednode');
+  await body().locator(':scope > p').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Escape');
+  await selectedBlock.getByText('第一段。', { exact: true }).waitFor();
+  await page.keyboard.press('ArrowDown');
+  await body().locator('h2.ProseMirror-selectednode').getByText('小节', { exact: true }).waitFor();
+  await page.keyboard.press('ControlOrMeta+d');
+  await body().getByRole('heading', { name: '小节', exact: true }).nth(1).waitFor();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Backspace');
+  await body().getByRole('heading', { name: '小节', exact: true }).nth(1).waitFor({ state: 'detached' });
+  await body().getByRole('heading', { name: '小节', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('ArrowDown');
+  await body().locator('.ProseMirror-selectednode .fold-header').waitFor();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('一');
+  await body().getByRole('heading', { name: '小节一', exact: true }).waitFor();
+  assert.equal(await selectedBlock.count(), 0);
+  checks.push('Esc 选中整块，方向键在块间移动，可复制、删除，回车回到块末尾继续输入');
+
+  await body().locator(':scope > p').last().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('缩进前');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('缩进后');
+  await page.keyboard.press('Tab');
+  await body().locator('.indent-block').getByText('缩进后', { exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.type('/ll');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('左栏');
+  await body().locator('.column').nth(1).locator('p').click();
+  await page.keyboard.type('右栏');
+  // Drag the gap between the columns to the right, as in Notion.
+  const gap = await body().locator('.column-resize').boundingBox();
+  await page.mouse.move(gap.x + gap.width / 2, gap.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(gap.x + gap.width / 2 + 60, gap.y + 8, { steps: 4 });
+  await page.mouse.move(gap.x + gap.width / 2 + 120, gap.y + 8, { steps: 4 });
+  await page.mouse.up();
+  const columnWidths = await body().locator('.column').evaluateAll((columns) => columns.map((column) => column.getBoundingClientRect().width));
+  assert.ok(columnWidths[0] > columnWidths[1] + 100, String(columnWidths));
+  const beforeIndent = body().locator(':scope > p').getByText('缩进前', { exact: true });
+  // Cards go in the columns, so the indented line stays right under its parent.
+  const columnLine = async (index) => {
+    const line = body().locator('.column').nth(index).locator('p').last();
+    const box = await line.boundingBox();
+    await page.mouse.click(box.x + box.width - 8, box.y + box.height / 2);
+    await page.keyboard.press('Enter');
+  };
+  await columnLine(0);
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text/plain', 'https://example.test/paste');
+    document.querySelector('.document-body').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await page.getByRole('group', { name: '粘贴网址', exact: true }).waitFor();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await body().locator('.bookmark-card').filter({ hasText: 'https://example.test/paste' }).getByText('示例网页标题', { exact: true }).waitFor();
+  await beforeIndent.click({ clickCount: 3 });
+  await page.keyboard.press('ControlOrMeta+Shift+m');
+  await field('评论内容', dialog()).fill('核对出处');
+  await button('保存评论', dialog()).click();
+  await dialog().waitFor({ state: 'detached' });
+  await body().locator('.comment-mark').getByText('缩进前', { exact: true }).click();
+  const commentNote = page.getByRole('note', { name: '评论', exact: true });
+  await commentNote.getByText('核对出处', { exact: true }).waitFor();
+  await button('回复', commentNote).click();
+  // "@" in a reply mentions a page, as in Notion's comments.
+  await field('回复内容', dialog()).fill('已核对，见 @实验记录');
+  await dialog().getByRole('option', { name: '实验记录与原件', exact: true }).waitFor();
+  await field('回复内容', dialog()).press('Enter');
+  await button('发送回复', dialog()).click();
+  await dialog().waitFor({ state: 'detached' });
+  const replies = commentNote.getByRole('list', { name: '回复' });
+  await replies.getByText('已核对，见', { exact: false }).waitFor();
+  await replies.getByRole('button', { name: '@实验记录与原件', exact: true }).waitFor();
+  // A bookmark from the slash menu can read the page title, only when asked.
+  // Leave the comment first: its card overlays the page while the caret is inside it.
+  await body().getByRole('heading', { name: '小节一', exact: true }).click();
+  await page.getByRole('note', { name: '评论', exact: true }).waitFor({ state: 'detached' });
+  await columnLine(1);
+  await page.keyboard.type('/sq');
+  await page.keyboard.press('Enter');
+  await field('网址', dialog()).fill('https://example.test/titled');
+  await button('读取网页标题', dialog()).click();
+  await page.waitForFunction(() => document.querySelector('#web-link-label')?.value === '示例网页标题');
+  await button('保存链接', dialog()).click();
+  const titledCard = body().locator('.bookmark-card').filter({ hasText: 'https://example.test/titled' });
+  await titledCard.getByText('离线验收用的网页摘要', { exact: true }).waitFor();
+  // The preview image comes from the page's own attachment.
+  await page.waitForFunction(() => [...document.querySelectorAll('img.bookmark-image')].some((image) => image.complete && image.naturalWidth > 0));
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  const layout = (await readNotion()).blocks;
+  const layoutText = (blocks) => allBlocks(blocks).map(blockText).filter(Boolean);
+  const commented = layout.find((block) => blockText(block) === '缩进前');
+  assert.ok(commented, JSON.stringify(layout.map((block) => [block.type, blockText(block)])));
+  assert.deepEqual(commented.payload.inline[0].marks, [{ type: 'comment', text: '核对出处',
+    replies: [`已核对，见 @[实验记录与原件](page:${richBlocksPage.id})`] }]);
+  // Indented blocks are stored as children of the block above, as in Notion.
+  assert.deepEqual(layoutText(commented.children), ['缩进后']);
+  assert.ok(!layout.some((block) => block.type === 'indentBlock'));
+  assert.ok(allBlocks(layout).some((block) => block.type === 'bookmark' && block.payload.title === '示例网页标题'
+    && block.payload.description === '离线验收用的网页摘要' && block.payload.url === 'https://example.test/titled'
+    && block.payload.mediaType === 'image/png' && typeof block.payload.attachmentId === 'string'));
+  const columns = layout.find((block) => block.type === 'columnList');
+  assert.deepEqual(columns.children.map((column) => [column.type, layoutText(column.children)]), [['column', ['左栏']], ['column', ['右栏']]]);
+  const [leftWidth, rightWidth] = columns.children.map((column) => column.payload.width);
+  assert.ok(Number.isInteger(leftWidth) && leftWidth > 100 && leftWidth + rightWidth === 200, JSON.stringify([leftWidth, rightWidth]));
+  // A pasted address turned into a card reads the page by itself, as in Notion.
+  const card = allBlocks(layout).find((block) => block.type === 'bookmark' && block.payload.url === 'https://example.test/paste');
+  assert.ok(card, JSON.stringify(layout.map((block) => [block.type, blockText(block), block.children.map((child) => child.type)])));
+  assert.equal(card.payload.title, '示例网页标题');
+  assert.equal(typeof card.payload.attachmentId, 'string');
+  checks.push('Tab 缩进成子块、斜杠两列并拖动栏宽、粘贴网址转书签卡片并自动读取网页信息、⌘⇧M 评论与带 @ 提及的回复，缩进按子块保存');
+
+  await pageAction('评论');
+  const commentList = page.getByRole('dialog', { name: '评论', exact: true });
+  await commentList.getByRole('button', { name: /核对出处.*1 条回复/ }).click();
+  await commentList.waitFor({ state: 'detached' });
+  await page.getByRole('note', { name: '评论', exact: true }).getByText('核对出处', { exact: true }).waitFor();
+  checks.push('页面菜单列出本页评论，点击跳到被评论的文字并显示评论卡片');
+
+  await body().getByRole('heading', { name: '小节一', exact: true }).click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('临时一');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('临时二');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Shift+ArrowUp');
+  assert.deepEqual(await body().locator('.block-range-selected').allInnerTexts(), ['临时一', '临时二']);
+  await page.keyboard.press('Backspace');
+  await body().getByText('临时一', { exact: true }).waitFor({ state: 'detached' });
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  const afterRange = allBlocks((await readNotion()).blocks).map(blockText);
+  assert.ok(!afterRange.includes('临时一') && !afterRange.includes('临时二') && afterRange.includes('小节一'));
+  checks.push('Esc 后 Shift+↑／↓ 选中多块，一次删除整块且保留相邻内容');
+
+  // Typing over a selected block keeps it and writes at its end, as in Notion.
+  await body().getByRole('heading', { name: '小节一', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.keyboard.type('X');
+  await body().getByRole('heading', { name: '小节一X', exact: true }).waitFor();
+  await page.keyboard.press('Backspace');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Shift+ArrowDown');
+  await body().locator('.block-range-selected').first().waitFor();
+  assert.equal(await page.locator('.format-bar').count(), 0);
+  await page.keyboard.press('Escape');
+  // A click below the last block continues on the last line.
+  await page.locator('.document-scroll').evaluate((scroll) => { scroll.scrollTop = scroll.scrollHeight; });
+  const bodyBox = await body().boundingBox();
+  assert.ok(bodyBox.y + bodyBox.height + 30 < page.viewportSize().height, 'room below the last block');
+  await page.mouse.click(bodyBox.x + 40, bodyBox.y + bodyBox.height + 30);
+  await page.keyboard.type('末尾续写');
+  await page.waitForFunction(() => document.querySelector('.document-body')?.lastElementChild?.textContent === '末尾续写');
+  await save();
+  await page.getByText('已保存', { exact: true }).waitFor();
+  const kept = allBlocks((await readNotion()).blocks);
+  assert.ok(kept.some((block) => block.type === 'heading' && blockText(block) === '小节一'));
+  assert.ok(kept.some((block) => block.type === 'toggleBlock'));
+  checks.push('选中整块时输入不覆盖该块，多块选择不显示格式条，点击正文下方空白在最后一行继续输入');
+
   const pdfPage = await invoke('create_page', { workspace: scheduleSpace, parentId: null });
   await invoke('save_page', { workspace: scheduleSpace, id: pdfPage.id, revision: pdfPage.revision,
     draft: { title: '实验文献与扫描件', blocks: [] } });
@@ -1875,7 +2365,7 @@ try {
   assert.equal(migrationPages.filter((item) => item.parentId === importedTable.id).length, 2);
   await button('迁移清单').click();
   await table().getByText('已核验', { exact: true }).waitFor();
-  await button('检查导入', table()).click();
+  await button(`打开「检查导入」`, table()).click();
   await body().getByText('一条带正文的记录。', { exact: true }).waitFor();
   checks.push('Notion 分卷按原层级创建页面，转向本地页面和数据库，CSV 与记录正文合并并完整导出报告');
 
@@ -2197,7 +2687,7 @@ try {
     assert.equal(stored.properties[rating.id], expected);
     assert.equal(stored.revision, record.revision + 1);
   }
-  await button('待判断记录', table()).click();
+  await button(`打开「待判断记录」`, table()).click();
   await button('历史').click();
   await dialog().getByRole('button', { name: new RegExp(`版本 ${unavailable.revision}`) }).click();
   await dialog().getByText('确认后填写', { exact: true }).waitFor();

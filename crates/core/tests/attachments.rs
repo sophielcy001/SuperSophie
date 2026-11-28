@@ -408,7 +408,7 @@ fn migrates_a_real_v1_schema_with_a_readable_pre_upgrade_snapshot() {
         .path()
         .join("upgrade-backups")
         .join(format!("{ws}-v1.sqlite"));
-    assert_eq!(version(&current), 21);
+    assert_eq!(version(&current), 22);
     assert_eq!(version(&snapshot), 1);
     let snapshot_db = Connection::open(snapshot).unwrap();
     assert_eq!(

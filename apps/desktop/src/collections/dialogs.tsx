@@ -36,8 +36,10 @@ function SaveActions({ busy, onClose, children }: DialogActions & { children?: R
   </footer>;
 }
 
-export function SchemaDialog({ workspace, collection, targets, busy, error, onClose, onSave, onPreview, onConvert, onCreateRelation, onSaveComputed }: DialogActions & {
+export function SchemaDialog({ workspace, collection, targets, busy, error, initial, onClose, onSave, onPreview, onConvert, onCreateRelation, onSaveComputed }: DialogActions & {
   workspace: string; collection: Collection; targets: RelatedRecord[];
+  /** Prefills a new property, e.g. a date property for the calendar. */
+  initial?: { name: string; type: PropertyKind };
   onSave(draft: PropertyDraft): void; onConvert(draft: PropertyDraft, fingerprint: string): void;
   onPreview(draft: PropertyDraft): Promise<PropertyConversionPreview>;
   onCreateRelation(draft: RelationDraft): void; onSaveComputed(draft: ComputedDraft): void;
@@ -53,7 +55,7 @@ export function SchemaDialog({ workspace, collection, targets, busy, error, onCl
       </select>
     </div>
     <PropertyForm key={selected} workspace={workspace} collection={collection} field={collection.properties.find((field) => field.id === selected)}
-      targets={targets} busy={busy} error={error} onClose={onClose} onSave={onSave} onPreview={onPreview} onConvert={onConvert}
+      initial={selected ? undefined : initial} targets={targets} busy={busy} error={error} onClose={onClose} onSave={onSave} onPreview={onPreview} onConvert={onConvert}
       onCreateRelation={onCreateRelation} onSaveComputed={onSaveComputed} />
   </Modal>;
 }
@@ -62,16 +64,17 @@ function convertible(kind: PropertyKind) {
   return !autoField(kind) && !computedField(kind) && kind !== 'relation';
 }
 
-function PropertyForm({ workspace, collection, field, targets, busy, error, onClose, onSave, onPreview, onConvert, onCreateRelation, onSaveComputed }: DialogActions & {
+function PropertyForm({ workspace, collection, field, initial, targets, busy, error, onClose, onSave, onPreview, onConvert, onCreateRelation, onSaveComputed }: DialogActions & {
   workspace: string; collection: Collection; field?: PropertyDefinition; targets: RelatedRecord[];
+  initial?: { name: string; type: PropertyKind };
   onSave(draft: PropertyDraft): void; onConvert(draft: PropertyDraft, fingerprint: string): void;
   onPreview(draft: PropertyDraft): Promise<PropertyConversionPreview>;
   onCreateRelation(draft: RelationDraft): void; onSaveComputed(draft: ComputedDraft): void;
 }) {
   const scope = useId();
   const optionKey = useRef(0);
-  const [name, setName] = useState(field?.name ?? '');
-  const [kind, setKind] = useState<PropertyKind>(field?.type ?? 'text');
+  const [name, setName] = useState(field?.name ?? initial?.name ?? '');
+  const [kind, setKind] = useState<PropertyKind>(field?.type ?? initial?.type ?? 'text');
   const [collectionId, setCollectionId] = useState('');
   const [withInverse, setWithInverse] = useState(false);
   const [inverseName, setInverseName] = useState('');
@@ -342,7 +345,8 @@ export function ViewDialog({ collection, view, busy, error, onClose, onSave, onD
   const [group, setGroup] = useState(view?.settings.groupBy ?? '');
   const [start, setStart] = useState(view?.layout?.type === 'calendar' ? view.layout.dateField
     : view?.layout?.type === 'timeline' ? view.layout.startField : '');
-  const [end, setEnd] = useState(view?.layout?.type === 'timeline' ? view.layout.endField : '');
+  const [end, setEnd] = useState(view?.layout?.type === 'timeline' ? view.layout.endField
+    : view?.layout?.type === 'calendar' ? view.layout.endField ?? '' : '');
   const [cover, setCover] = useState(view?.layout?.type === 'gallery' ? view.layout.coverField ?? '' : '');
   const [zoom, setZoom] = useState<TimelineZoom>(view?.layout?.type === 'timeline' ? view.layout.zoom : 'fortnight');
   const [invalid, setInvalid] = useState('');
@@ -358,7 +362,7 @@ export function ViewDialog({ collection, view, busy, error, onClose, onSave, onD
       try {
         const filter = readFilter(draft, fields);
         let layout: ViewLayout | null = null;
-        if (kind === 'calendar' && start) layout = { type: kind, dateField: start };
+        if (kind === 'calendar' && start) layout = { type: kind, dateField: start, endField: end || null };
         if (kind === 'gallery') layout = { type: kind, coverField: cover || null };
         if (kind === 'timeline' && (start || end)) {
           if (!start || !end) throw new Error('请选择时间线的起始日期和结束日期。');
@@ -394,6 +398,12 @@ export function ViewDialog({ collection, view, busy, error, onClose, onSave, onD
           }}>
             <option value="">自动选择</option>
             {dates.map((field) => <option key={field.id} value={field.id}>{field.name}</option>)}
+          </select>
+        </div>}
+        {kind === 'calendar' && start && <div className="form-field"><label htmlFor={id + '-end'}>结束日期属性</label>
+          <select id={id + '-end'} value={end} onChange={(event) => setEnd(event.currentTarget.value)}>
+            <option value="">无（每条只占一天）</option>
+            {endChoices.map((field) => <option key={field.id} value={field.id}>{field.name}</option>)}
           </select>
         </div>}
         {kind === 'timeline' && <>

@@ -22,6 +22,7 @@ node scripts/dependency-inventory.mjs aarch64-apple-darwin=cargo-macos.json x86_
 |---|---|---|
 | Tauri Rust | 2.12.5 | MIT OR Apache-2.0 |
 | Tauri JS API、CLI | 2.12.4 | MIT OR Apache-2.0 |
+| Tauri NSIS 安装模板 | CLI 2.12.4 | MIT，许可见 `licenses/Tauri-NSIS-MIT.txt` |
 | Tauri Dialog Rust | 2.8.4 | MIT OR Apache-2.0 |
 | Tauri Opener Rust／open | 2.7.3／5.4.5 | 分别为 MIT OR Apache-2.0、MIT |
 | Tauri Deep Link／Single Instance | 2.6.3／2.5.5 | MIT OR Apache-2.0 |
@@ -37,19 +38,40 @@ node scripts/dependency-inventory.mjs aarch64-apple-darwin=cargo-macos.json x86_
 | Hyper／hyper-util／http-body-util | 1.12.0／0.1.21／0.1.5 | MIT |
 | Tokio | 1.54.1 | MIT |
 | url | 2.5.8 | MIT OR Apache-2.0 |
+| reqwest | 0.13.5 | MIT OR Apache-2.0。同步客户端仅启用 HTTP/1.1 和系统 TLS。 |
+| native-tls／hyper-tls／tokio-native-tls | 0.2.18／0.6.0／0.3.1 | 分别为 MIT OR Apache-2.0、MIT OR Apache-2.0、MIT |
+| security-framework | 3.7.0 | MIT OR Apache-2.0。macOS 的 TLS 与钥匙串。 |
+| schannel／windows-sys | 0.1.30／0.61.2 | 分别为 MIT、MIT OR Apache-2.0。Windows 的 TLS 与凭据管理器。 |
+| rustls-pki-types | 1.14.1 | MIT OR Apache-2.0 |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | pulldown-cmark／pulldown-cmark-escape | 0.13.6／0.11.0 | [MIT](licenses/Pulldown-CMark-MIT.txt) |
 | csv／csv-core | 1.4.0／0.1.13 | Unlicense OR MIT |
 | zip／flate2／zlib-rs | 9.5.1／1.1.11／0.6.8 | 分别为 MIT、MIT OR Apache-2.0、Zlib |
 | rustix | 1.1.6 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT。macOS 备份使用 POSIX 刷盘接口。 |
 | lucide-react | 1.72.0 | ISC |
-| Inter Variable | 5.3.0 | OFL-1.1，见 [Inter 许可](licenses/Inter-OFL.txt) |
+| Inter Variable | 5.3.0 | OFL-1.1，见 [Inter 许可](licenses/Inter-OFL.txt)。自 2026-11-24 起界面改用系统字体，字体文件不再打包进前端产物，npm 依赖暂留。 |
 | PDF.js | 6.5.438 | [Apache-2.0](licenses/PDFjs-Apache-2.0.txt) |
 | PDF.js 随附字体与 CMaps | 随 PDF.js 6.5.438 | [Liberation](licenses/PDFjs-Liberation-Fonts.txt)、[Foxit](licenses/PDFjs-Foxit-Fonts.txt)、[Adobe CMaps](licenses/PDFjs-Adobe-CMaps.txt) |
 | Vite、Vitest、TypeScript | 8.3.8、5.1.0、5.9.3 | 开发依赖，分别为 MIT、MIT、Apache-2.0 |
 | MCP TypeScript SDK | 1.32.2 | MIT |
 | Ajv | 8.20.0 | MIT |
 | openapi-typescript、yaml | 7.13.0、2.9.1 | 契约生成依赖，分别为 MIT、ISC |
+
+## 自托管同步服务
+
+以下组件只用于同步服务 `zhiye-sync-server`，不包含在桌面程序中：
+
+| 组件 | 版本 | 许可证或声明 |
+|---|---|---|
+| postgres／tokio-postgres／postgres-protocol／postgres-types | 0.19.14／0.7.18／0.6.12／0.2.14 | MIT OR Apache-2.0 |
+| fallible-iterator、md-5、stringprep、chacha20 | 0.2.0、0.11.0、0.1.5、0.9.1 | MIT OR Apache-2.0 |
+| unicode-normalization、unicode-properties、unicode-bidi | 0.1.26、0.1.5、0.3.18 | 前两项为 (MIT OR Apache-2.0) AND Unicode-3.0，unicode-bidi 为 MIT OR Apache-2.0 |
+| whoami、wasite | 2.1.3、1.0.2 | Apache-2.0 OR BSL-1.0 OR MIT |
+| objc2-system-configuration | 0.3.2 | Zlib OR Apache-2.0 OR MIT（仅 macOS 构建） |
+
+Docker 参考部署另外使用官方镜像 `postgres:17-alpine`（PostgreSQL License）、`caddy:2-alpine`（Apache-2.0）、构建镜像 `rust:1.100.0-slim-bookworm` 和运行镜像 `debian:bookworm-slim`，各镜像中的系统软件按其自身许可分发。
+
+Cargo 锁文件还包含 `openssl`、`openssl-sys`、`openssl-macros`、`openssl-probe` 和 `foreign-types`，它们只在 Linux 目标上作为系统 TLS 使用，Windows 和 macOS 构建不编译。
 
 本机 x64 构建的 Rust 依赖中包含 `cssparser`、`cssparser-macros`、`dtoa-short`、`option-ext` 和 `selectors` 的 MPL-2.0 代码。当前工程通过 Cargo 依赖使用这些组件，其原文件和许可证随对应版本的公开 crate 发布。
 

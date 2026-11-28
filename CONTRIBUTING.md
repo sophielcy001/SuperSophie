@@ -17,6 +17,7 @@ cargo fmt --all -- --check
 cargo test --locked --workspace
 npm test
 npm run build:ui
+python -B scripts/package-source.test.py
 ```
 
 用对应的原生流程验证桌面 UI、系统文件对话框和键盘行为。在开发记录中保存本次的关键步骤、遇到的问题、实际测试结果及无法覆盖的环境。[开发记录](开发记录.md) [原生复验](README.md#从源码构建)

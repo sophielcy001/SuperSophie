@@ -5,12 +5,17 @@ import type { Editor } from '@tiptap/core';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import UniqueID from '@tiptap/extension-unique-id';
 import { TableKit } from '@tiptap/extension-table';
+import { Placeholder } from '@tiptap/extensions';
 import type { ResolvedPos } from '@tiptap/pm/model';
 import { NodeSelection, Plugin, PluginKey } from '@tiptap/pm/state';
 import type { Transaction } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
 import { blockTypes, cursorParagraphAttributes, needsCursorParagraph } from './blocks';
+import { BackgroundColor, BlockColor, Comment, TextColor } from './marks';
+import { Column, ColumnList, IndentBlock } from './LayoutBlocks';
+import { onPageDirectory, referenceLabel, referenceTrashed } from './page-directory';
+import { NotionInput } from './notion-input';
 import { inlineText, webAddress } from './rich-content';
 
 const PageReference = Node.create({
@@ -38,6 +43,35 @@ const PageReference = Node.create({
       role: 'link',
       tabindex: '0',
     }, `↗ ${node.attrs.label}`];
+  },
+  addNodeView() {
+    return ({ node: initial }) => {
+      let node = initial;
+      const dom = document.createElement('span');
+      dom.className = 'page-reference';
+      dom.setAttribute('role', 'link');
+      dom.tabIndex = 0;
+      const render = () => {
+        const { pageId, label } = node.attrs;
+        dom.dataset.pageReference = pageId;
+        dom.dataset.label = label;
+        dom.textContent = `↗ ${referenceLabel(pageId, label) || '无标题'}`;
+        dom.classList.toggle('is-trashed', referenceTrashed(pageId));
+      };
+      render();
+      const unsubscribe = onPageDirectory(render);
+      return {
+        dom,
+        update(next) {
+          if (next.type !== node.type) return false;
+          node = next;
+          render();
+          return true;
+        },
+        ignoreMutation: () => true,
+        destroy: unsubscribe,
+      };
+    };
   },
 });
 
@@ -163,6 +197,13 @@ export const editorExtensions = [
     trailingNode: false,
   }),
   TableKit.configure({ table: { renderWrapper: true, allowTableNodeSelection: true } }),
+  // Hint in the empty line under the caret, as Notion does.
+  Placeholder.configure({
+    includeChildren: false,
+    placeholder: ({ node }) => node.type.name === 'heading'
+      ? `${['', '一', '二', '三'][node.attrs.level as number] ?? ''}级标题`
+      : node.type.name === 'paragraph' ? '输入 / 唤出命令…' : '',
+  }),
   TaskList,
   TaskItem.configure({
     nested: true,
@@ -174,6 +215,14 @@ export const editorExtensions = [
     },
   }),
   PageReference,
+  TextColor,
+  BackgroundColor,
+  BlockColor,
+  Comment,
+  IndentBlock,
+  ColumnList,
+  Column,
+  NotionInput,
   UnknownBlock,
   SearchBlock,
   CursorParagraph,

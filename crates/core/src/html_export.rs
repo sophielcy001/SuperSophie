@@ -19,7 +19,9 @@ pub(crate) fn render_document(
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_GFM;
     let events = Parser::new_ext(markdown, options).map(|event| match event {
-        Event::InlineHtml(tag) if matches!(tag.as_ref(), "<u>" | "</u>" | "<br>") => {
+        Event::InlineHtml(tag)
+            if matches!(tag.as_ref(), "<u>" | "</u>" | "<br>" | "</span>") || color_span(&tag) =>
+        {
             Event::InlineHtml(tag)
         }
         Event::Html(raw) | Event::InlineHtml(raw) => Event::Text(raw),
@@ -65,6 +67,22 @@ pub(crate) fn render_document(
     document
 }
 
+/// The only other inline HTML the Markdown renderer writes: a span carrying a Notion color.
+fn color_span(tag: &str) -> bool {
+    let Some((attribute, color)) = tag
+        .strip_prefix("<span ")
+        .and_then(|rest| rest.strip_suffix("\">"))
+        .and_then(|rest| rest.split_once("=\""))
+    else {
+        return false;
+    };
+    match attribute {
+        "data-text-color" | "data-background-color" => crate::rich_blocks::inline_color(color),
+        "data-block-color" => crate::rich_blocks::block_color(color),
+        _ => false,
+    }
+}
+
 fn safe_relative_path(path: &str) -> bool {
     path.split('/').all(|part| {
         !matches!(part, "" | "." | "..")
@@ -86,4 +104,43 @@ const STYLE: &str = "
   table { display: block; inline-size: max-content; max-inline-size: 100%; overflow: auto; border-collapse: collapse; }
   th, td { border: 1px solid GrayText; padding: 0.35rem 0.65rem; text-align: start; }
   @media print { main { max-inline-size: none; padding: 0; } }
+  /* Notion's text and background colors. */
+  [data-text-color=gray], [data-block-color=gray] { color: #787774; }
+  [data-background-color=gray], [data-block-color=gray_background] { background: #f1f1ef; border-radius: 3px; }
+  [data-text-color=brown], [data-block-color=brown] { color: #9f6b53; }
+  [data-background-color=brown], [data-block-color=brown_background] { background: #f4eeee; border-radius: 3px; }
+  [data-text-color=orange], [data-block-color=orange] { color: #d9730d; }
+  [data-background-color=orange], [data-block-color=orange_background] { background: #fbecdd; border-radius: 3px; }
+  [data-text-color=yellow], [data-block-color=yellow] { color: #cb912f; }
+  [data-background-color=yellow], [data-block-color=yellow_background] { background: #fbf3db; border-radius: 3px; }
+  [data-text-color=green], [data-block-color=green] { color: #448361; }
+  [data-background-color=green], [data-block-color=green_background] { background: #edf3ec; border-radius: 3px; }
+  [data-text-color=blue], [data-block-color=blue] { color: #337ea9; }
+  [data-background-color=blue], [data-block-color=blue_background] { background: #e7f3f8; border-radius: 3px; }
+  [data-text-color=purple], [data-block-color=purple] { color: #9065b0; }
+  [data-background-color=purple], [data-block-color=purple_background] { background: #f6f3f9; border-radius: 3px; }
+  [data-text-color=pink], [data-block-color=pink] { color: #c14c8a; }
+  [data-background-color=pink], [data-block-color=pink_background] { background: #faf1f5; border-radius: 3px; }
+  [data-text-color=red], [data-block-color=red] { color: #d44c47; }
+  [data-background-color=red], [data-block-color=red_background] { background: #fdebec; border-radius: 3px; }
+  @media (prefers-color-scheme: dark) {
+    [data-text-color=gray], [data-block-color=gray] { color: #9b9b9b; }
+    [data-background-color=gray], [data-block-color=gray_background] { background: #2f2f2f; border-radius: 3px; }
+    [data-text-color=brown], [data-block-color=brown] { color: #ba856f; }
+    [data-background-color=brown], [data-block-color=brown_background] { background: #4a3228; border-radius: 3px; }
+    [data-text-color=orange], [data-block-color=orange] { color: #c77d48; }
+    [data-background-color=orange], [data-block-color=orange_background] { background: #5c3b23; border-radius: 3px; }
+    [data-text-color=yellow], [data-block-color=yellow] { color: #ca9849; }
+    [data-background-color=yellow], [data-block-color=yellow_background] { background: #564328; border-radius: 3px; }
+    [data-text-color=green], [data-block-color=green] { color: #529e72; }
+    [data-background-color=green], [data-block-color=green_background] { background: #243d30; border-radius: 3px; }
+    [data-text-color=blue], [data-block-color=blue] { color: #379ad3; }
+    [data-background-color=blue], [data-block-color=blue_background] { background: #143a4e; border-radius: 3px; }
+    [data-text-color=purple], [data-block-color=purple] { color: #9d68d3; }
+    [data-background-color=purple], [data-block-color=purple_background] { background: #3c2d49; border-radius: 3px; }
+    [data-text-color=pink], [data-block-color=pink] { color: #d15796; }
+    [data-background-color=pink], [data-block-color=pink_background] { background: #4e2c3c; border-radius: 3px; }
+    [data-text-color=red], [data-block-color=red] { color: #df5452; }
+    [data-background-color=red], [data-block-color=red_background] { background: #522e2a; border-radius: 3px; }
+  }
 ";

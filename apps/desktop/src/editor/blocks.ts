@@ -4,17 +4,23 @@ import type { JSONContent } from '@tiptap/core';
 import type { Block, BlockTarget, ViewTarget } from '../contracts';
 import { imageAttributes, tableAlignment, webAddress } from './rich-content';
 import { calloutTone, mathSource, toggleTitle } from './content-shapes';
+import { blockColor, bookmarkAttributes, commentReplies, commentText, inlineColor } from './marks';
+import { columnWidth } from './LayoutBlocks';
+import { referenceLabel } from './page-directory';
 
-const containers = new Set(['blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'toggleBlock', 'callout']);
+const containers = new Set(['blockquote', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'toggleBlock', 'callout',
+  'indentBlock', 'columnList', 'column']);
 const tableCells = new Set(['tableCell', 'tableHeader']);
 const tableNodes = new Set(['table', 'tableRow', ...tableCells]);
-const structuralNodes = new Set(['listItem', 'taskItem', 'tableRow', ...tableCells]);
+const structuralNodes = new Set(['listItem', 'taskItem', 'tableRow', 'column', ...tableCells]);
 const allowedMarks = new Set(['bold', 'italic', 'underline', 'strike', 'code']);
+const colorMarks = new Set(['textColor', 'backgroundColor']);
 const blockKeys = new Set(['id', 'type', 'schemaVersion', 'payload', 'children']);
 const numberingStyles = new Set(['1', 'a', 'A', 'i', 'I']);
 
 export const needsCursorParagraph = new Set(['horizontalRule', 'unknownBlock', 'attachmentImage', 'attachmentFile',
-  'blockReference', 'collectionView', 'mathBlock', 'tableOfContents', 'toggleBlock', 'callout', 'table']);
+  'blockReference', 'collectionView', 'mathBlock', 'tableOfContents', 'toggleBlock', 'callout', 'table',
+  'indentBlock', 'columnList', 'bookmark']);
 
 export function cursorParagraphAttributes() {
   return { id: crypto.randomUUID(), editorCursor: true };
@@ -54,6 +60,16 @@ function inlineMark(mark: unknown): NonNullable<JSONContent['marks']>[number] | 
   if (count === 1 && allowedMarks.has(mark.type)) return { type: mark.type };
   const href = mark.type === 'link' && count === 2 ? webAddress(mark.href) : undefined;
   if (href) return { type: 'link', attrs: { href } };
+  const color = colorMarks.has(mark.type) && count === 2 ? inlineColor(mark.color) : undefined;
+  if (color) return { type: mark.type, attrs: { color } };
+  if (mark.type === 'comment') {
+    const text = commentText(mark.text);
+    const replies = mark.replies === undefined ? undefined : commentReplies(mark.replies);
+    if (text && count === (mark.replies === undefined ? 2 : 3) && (mark.replies === undefined || replies)) {
+      return { type: 'comment', attrs: { text, replies: replies ?? null } };
+    }
+    return;
+  }
 }
 
 function inlineNode(item: unknown): JSONContent | undefined {
@@ -96,7 +112,7 @@ function tableHasValidGrid(rows: JSONContent[]) {
 
 function tableNode(type: string, attrs: Record<string, unknown>, payload: Block['payload'], children: Block[]): JSONContent | undefined {
   if (!children.length && type !== 'tableRow') return;
-  const content = children.map(blockNode);
+  const content = children.flatMap(blockNodes);
   if (type === 'table' || type === 'tableRow') {
     if (Object.keys(payload).length) return;
     if (type === 'tableRow' ? content.some((cell) => !tableCells.has(cell.type ?? ''))
@@ -130,7 +146,12 @@ function supportedNode(block: Block): JSONContent | undefined {
   const keys = Object.keys(payload);
 
   if (type === 'paragraph' || type === 'heading') {
-    if (children.length || !Array.isArray(payload.inline) || keys.some((key) => key !== 'inline' && (type !== 'heading' || key !== 'level'))) return;
+    if (children.length || !Array.isArray(payload.inline)
+      || keys.some((key) => key !== 'inline' && key !== 'color' && (type !== 'heading' || key !== 'level'))) return;
+    if (payload.color !== undefined) {
+      if (!blockColor(payload.color)) return;
+      attrs.blockColor = payload.color;
+    }
     if (type === 'heading') {
       if (typeof payload.level !== 'number' || ![1, 2, 3].includes(payload.level)) return;
       attrs.level = payload.level;
@@ -170,6 +191,10 @@ function supportedNode(block: Block): JSONContent | undefined {
   if (type === 'tableOfContents') {
     return !keys.length && !children.length ? { type, attrs } : undefined;
   }
+  if (type === 'bookmark') {
+    const card = !children.length && keys.every((key) => ['url', 'title', 'description', 'attachmentId', 'mediaType'].includes(key)) ? bookmarkAttributes(payload) : undefined;
+    return card ? { type, attrs: { ...attrs, ...card } } : undefined;
+  }
   if (tableNodes.has(type)) return tableNode(type, attrs, payload, children);
   if (!containers.has(type) || children.length === 0) return;
 
@@ -191,13 +216,21 @@ function supportedNode(block: Block): JSONContent | undefined {
     const tone = calloutTone(payload.tone);
     if (keys.length !== 1 || !tone) return;
     attrs.tone = tone;
+  } else if (type === 'column') {
+    if (keys.some((key) => key !== 'width')) return;
+    if (payload.width !== undefined) {
+      if (!columnWidth(payload.width)) return;
+      attrs.width = payload.width;
+    }
   } else if (keys.length) return;
 
-  const content = children.map(blockNode);
+  const content = children.flatMap(blockNodes);
   if (type === 'bulletList' || type === 'orderedList' || type === 'taskList') {
     if (content.some((node) => node.type !== (type === 'taskList' ? 'taskItem' : 'listItem'))) return;
   } else if (type === 'listItem' || type === 'taskItem') {
     if (content[0]?.type !== 'paragraph' || content.some((node) => structuralNodes.has(node.type ?? ''))) return;
+  } else if (type === 'columnList') {
+    if (content.length < 2 || content.length > 5 || content.some((node) => node.type !== 'column')) return;
   } else if (content.some((node) => structuralNodes.has(node.type ?? ''))) return;
   return { type, attrs, content };
 }
@@ -206,13 +239,43 @@ export function blockNode(block: Block): JSONContent {
   return supportedNode(block) ?? { type: 'unknownBlock', attrs: { id: block.id, raw: block } };
 }
 
+/** Text blocks that can hold child blocks, as in Notion. */
+const nestable = new Set(['paragraph', 'heading']);
+/** Blocks built from editor content (not preserved unknown data), which may take nested children. */
+const editorBlocks = new WeakSet<Block>();
+
+/**
+ * Like Notion, a paragraph or heading keeps its indented blocks as children. The editor shows
+ * them as an indented run right after the block, so a block with children becomes two nodes.
+ */
+function blockNodes(block: Block): JSONContent[] {
+  if (!nestable.has(block.type) || !block.children.length) return [blockNode(block)];
+  const parent = supportedNode({ ...block, children: [] });
+  if (!parent || parent.type !== block.type) return [blockNode(block)];
+  return [parent, { type: 'indentBlock', attrs: { id: crypto.randomUUID() }, content: block.children.flatMap(blockNodes) }];
+}
+
+/** The reverse when saving: an indented run after a paragraph or heading becomes its children. */
+function nestIndents(blocks: Block[]): Block[] {
+  const nested: Block[] = [];
+  for (const block of blocks) {
+    const children = nestIndents(block.children);
+    if (children !== block.children && editorBlocks.has(block)) block.children = children;
+    const previous = nested.at(-1);
+    if (block.type === 'indentBlock' && editorBlocks.has(block) && previous && editorBlocks.has(previous)
+      && nestable.has(previous.type)) {
+      previous.children.push(...block.children);
+      continue;
+    }
+    nested.push(block);
+  }
+  return nested;
+}
+
 export function fromBlocks(blocks: Block[]): JSONContent {
-  const content = blocks.map((block) => {
-    const node = blockNode(block);
-    return structuralNodes.has(node.type ?? '')
-      ? { type: 'unknownBlock', attrs: { id: block.id, raw: block } }
-      : node;
-  });
+  const content = blocks.flatMap((block) => blockNodes(block).map((node) => structuralNodes.has(node.type ?? '')
+    ? { type: 'unknownBlock', attrs: { id: block.id, raw: block } }
+    : node));
   const last = content.at(-1)?.type;
   if (!last || needsCursorParagraph.has(last)) {
     // Give the cursor paragraph its ID before mounting, so initialization does not trigger autosave.
@@ -222,12 +285,22 @@ export function fromBlocks(blocks: Block[]): JSONContent {
 }
 
 function asInline(node: JSONContent) {
-  if (node.type === 'pageReference') return { type: node.type, pageId: node.attrs?.pageId, label: node.attrs?.label };
+  // A reference that shows a page's current title saves that title too.
+  if (node.type === 'pageReference') return { type: node.type, pageId: node.attrs?.pageId, label: referenceLabel(node.attrs?.pageId, node.attrs?.label) };
   if (node.type === 'hardBreak') return { type: 'hardBreak' };
   const marks = node.marks?.flatMap((mark) => {
     if (mark.type === 'link') {
       const href = webAddress(mark.attrs?.href);
       return href ? [{ type: 'link', href }] : [];
+    }
+    if (mark.type === 'comment') {
+      const text = commentText(mark.attrs?.text);
+      const replies = commentReplies(mark.attrs?.replies);
+      return text ? [{ type: 'comment', text, ...(replies ? { replies } : {}) }] : [];
+    }
+    if (colorMarks.has(mark.type ?? '')) {
+      const color = inlineColor(mark.attrs?.color);
+      return color ? [{ type: mark.type, color }] : [];
     }
     return [{ type: mark.type }];
   });
@@ -250,9 +323,12 @@ function asBlock(node: JSONContent, seen: Set<string>): Block {
 
   const type = node.type ?? 'paragraph';
   const block: Block = { id, type, schemaVersion: 1, payload: {}, children: [] };
+  editorBlocks.add(block);
   if (type === 'paragraph' || type === 'heading') {
     block.payload.inline = (node.content ?? []).map(asInline);
     if (type === 'heading') block.payload.level = node.attrs?.level ?? 1;
+    const color = blockColor(node.attrs?.blockColor);
+    if (color) block.payload.color = color;
   } else if (type === 'codeBlock') {
     block.payload.text = (node.content ?? []).map((part) => part.text ?? '').join('');
     if (typeof node.attrs?.language === 'string') block.payload.language = node.attrs.language;
@@ -268,6 +344,8 @@ function asBlock(node: JSONContent, seen: Set<string>): Block {
     block.payload = fileTarget(node.attrs ?? {}) ?? {};
   } else if (type === 'mathBlock') {
     block.payload.latex = mathSource(node.attrs?.latex) ?? '';
+  } else if (type === 'bookmark') {
+    block.payload = bookmarkAttributes(node.attrs ?? {}) ?? {};
   } else if (containers.has(type) || tableNodes.has(type)) {
     if (type === 'orderedList') {
       block.payload.start = Number.isSafeInteger(node.attrs?.start) ? node.attrs?.start : 1;
@@ -279,6 +357,8 @@ function asBlock(node: JSONContent, seen: Set<string>): Block {
       block.payload.collapsed = node.attrs?.collapsed === true;
     }
     if (type === 'callout') block.payload.tone = calloutTone(node.attrs?.tone) ?? 'note';
+    const width = type === 'column' ? columnWidth(node.attrs?.width) : undefined;
+    if (width && width !== 100) block.payload.width = width;
     if (tableCells.has(type)) {
       for (const key of ['colspan', 'rowspan']) {
         if (typeof node.attrs?.[key] === 'number' && node.attrs[key] > 1) block.payload[key] = node.attrs[key];
@@ -297,5 +377,5 @@ export function toBlocks(doc: JSONContent): Block[] {
   const children = doc.content ?? [];
   const last = children.at(-1);
   const blocks = last?.attrs?.editorCursor && !last.content?.length ? children.slice(0, -1) : children;
-  return blocks.map((node) => asBlock(node, seen));
+  return nestIndents(blocks.map((node) => asBlock(node, seen)));
 }

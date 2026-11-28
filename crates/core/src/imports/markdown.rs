@@ -415,20 +415,32 @@ impl Builder<'_, '_> {
         if !tasks && marks.iter().any(Option::is_some) {
             self.note(node, "的混合或有序列表已将待办标记保留为文本。");
         }
-        let items = node.children.iter().zip(marks).map(|(item, checked)| {
-            let blocks = with_paragraph(self.blocks(&item.children), true);
-            if tasks {
-                block("taskItem", json!({"checked": checked.unwrap_or(false)}), blocks)
-            } else {
-                let mut blocks = blocks;
-                if let Some(checked) = checked {
-                    if let Some(inline) = blocks[0].payload["inline"].as_array_mut() {
-                        inline.insert(0, json!({"type": "text", "text": if checked { "[x] " } else { "[ ] " }}));
+        let items = node
+            .children
+            .iter()
+            .zip(marks)
+            .map(|(item, checked)| {
+                let blocks = with_paragraph(self.blocks(&item.children), true);
+                if tasks {
+                    block(
+                        "taskItem",
+                        json!({"checked": checked.unwrap_or(false)}),
+                        blocks,
+                    )
+                } else {
+                    let mut blocks = blocks;
+                    if let Some(checked) = checked
+                        && let Some(inline) = blocks[0].payload["inline"].as_array_mut()
+                    {
+                        inline.insert(
+                            0,
+                            json!({"type": "text", "text": if checked { "[x] " } else { "[ ] " }}),
+                        );
                     }
+                    block("listItem", json!({}), blocks)
                 }
-                block("listItem", json!({}), blocks)
-            }
-        }).collect();
+            })
+            .collect();
         match (tasks, start) {
             (true, _) => block("taskList", json!({}), items),
             (_, Some(start)) => block("orderedList", json!({"start": start}), items),

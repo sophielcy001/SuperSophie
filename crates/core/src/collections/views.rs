@@ -31,6 +31,9 @@ pub enum TimelineZoom {
 pub enum ViewLayout {
     Calendar {
         date_field: String,
+        /// A second date property of the same type, read as each record's last day.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        end_field: Option<String>,
     },
     Gallery {
         cover_field: Option<String>,
@@ -69,6 +72,26 @@ pub struct ScheduleMove {
     pub view_revision: u32,
     pub page_id: String,
     pub page_revision: u32,
+    pub day: String,
+}
+
+/// Which end of a scheduled record a resize moves.
+#[derive(Clone, Copy, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ScheduleEdge {
+    Start,
+    End,
+}
+
+/// Moves one end of a record's period to `day`, as dragging an edge of a calendar or timeline bar does.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ScheduleResize {
+    pub view_id: String,
+    pub view_revision: u32,
+    pub page_id: String,
+    pub page_revision: u32,
+    pub edge: ScheduleEdge,
     pub day: String,
 }
 
@@ -204,11 +227,8 @@ impl Store {
                     return Ok(());
                 }
                 let changed = shift(start.kind, original, days)?;
-                if let Some(end) = end {
-                    let finish = values
-                        .get(&end.id)
-                        .and_then(Value::as_str)
-                        .ok_or_else(schedule_error)?;
+                let finish = end.and_then(|end| Some((end, values.get(&end.id)?.as_str()?)));
+                if let Some((end, finish)) = finish {
                     let ordered = if start.kind == PropertyKind::Date {
                         day(original)? <= day(finish)?
                     } else {
@@ -222,6 +242,70 @@ impl Store {
                     values.insert(end.id.clone(), Value::from(shifted));
                 }
                 values.insert(start.id.clone(), Value::from(changed));
+                Ok(())
+            },
+        )
+    }
+
+    pub fn resize_scheduled_record(
+        &self,
+        workspace: &str,
+        collection: &str,
+        change: ScheduleResize,
+    ) -> Result<Page> {
+        let target = day(&change.day)?;
+        self.edit(
+            workspace,
+            &change.page_id,
+            change.page_revision,
+            |tx, page| {
+                let collection = read_collection(tx, collection)?;
+                if page.info.parent_id.as_deref() != Some(&collection.container_page_id) {
+                    return Err(Error::new("RECORD_NOT_FOUND", "这条记录不属于当前数据库。"));
+                }
+                let view = collection
+                    .views
+                    .iter()
+                    .find(|item| item.id == change.view_id)
+                    .ok_or_else(view_missing)?;
+                check_revision(view, change.view_revision)?;
+                let (start, end) =
+                    schedule_fields(view, &collection.properties).ok_or_else(schedule_error)?;
+                let end =
+                    end.ok_or_else(|| Error::new("VIEW_DATE", "请先为此视图选择结束日期属性。"))?;
+                let values = page.properties.as_mut().ok_or_else(schedule_error)?;
+                let original = values
+                    .get(&start.id)
+                    .and_then(Value::as_str)
+                    .ok_or_else(schedule_error)?
+                    .to_owned();
+                let finish = values
+                    .get(&end.id)
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| original.clone());
+                let first = projected_day(start.kind, &original)?;
+                let last = projected_day(end.kind, &finish)?.max(first);
+                let (first, last) = match change.edge {
+                    ScheduleEdge::Start => (target.min(last), last),
+                    ScheduleEdge::End => (first, target.max(first)),
+                };
+                let moved_start = shift(
+                    start.kind,
+                    &original,
+                    first.signed_duration_since(projected_day(start.kind, &original)?),
+                )?;
+                let moved_end = shift(
+                    end.kind,
+                    &finish,
+                    last.signed_duration_since(projected_day(end.kind, &finish)?),
+                )?;
+                values.insert(start.id.clone(), Value::from(moved_start));
+                if first == last && end.kind == PropertyKind::Date {
+                    values.remove(&end.id);
+                } else {
+                    values.insert(end.id.clone(), Value::from(moved_end));
+                }
                 Ok(())
             },
         )
@@ -296,8 +380,21 @@ pub(super) fn write_views(
 pub(super) fn validate_layout(view: &CollectionView, fields: &[PropertyDefinition]) -> Result<()> {
     let valid = match (view.kind, &view.layout) {
         (_, None) => true,
-        (ViewKind::Calendar, Some(ViewLayout::Calendar { date_field })) => {
-            is_date(definition(fields, date_field))
+        (
+            ViewKind::Calendar,
+            Some(ViewLayout::Calendar {
+                date_field,
+                end_field,
+            }),
+        ) => {
+            let start = definition(fields, date_field);
+            is_date(start)
+                && end_field.as_ref().is_none_or(|id| {
+                    id != date_field
+                        && definition(fields, id)
+                            .zip(start)
+                            .is_some_and(|(end, start)| end.kind == start.kind)
+                })
         }
         (
             ViewKind::Timeline,
@@ -338,9 +435,19 @@ pub(super) fn schedule_fields<'a>(
     fields: &'a [PropertyDefinition],
 ) -> Option<(&'a PropertyDefinition, Option<&'a PropertyDefinition>)> {
     match (view.kind, &view.layout) {
-        (ViewKind::Calendar, Some(ViewLayout::Calendar { date_field })) => {
-            Some((definition(fields, date_field)?, None))
-        }
+        (
+            ViewKind::Calendar,
+            Some(ViewLayout::Calendar {
+                date_field,
+                end_field,
+            }),
+        ) => Some((
+            definition(fields, date_field)?,
+            match end_field {
+                Some(id) => Some(definition(fields, id)?),
+                None => None,
+            },
+        )),
         (ViewKind::Calendar, None) => {
             Some((fields.iter().find(|field| is_date(Some(field)))?, None))
         }

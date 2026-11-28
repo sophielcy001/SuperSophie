@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "zhiye-core"
-version = "0.50.12"
+version = "0.50.14"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -1178,7 +1178,17 @@ dependencies = [
  "tempfile",
  "url",
  "uuid",
+ "zhiye-sync-protocol",
  "zip",
+]
+
+[[package]]
+name = "zhiye-sync-protocol"
+version = "0.50.14"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
@@ -1186,6 +1196,7 @@ name = "zhiye-ui-verification"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "uuid",
  "zhiye-core",
 ]
 

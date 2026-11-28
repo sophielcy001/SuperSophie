@@ -4,14 +4,14 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   Archive, BookOpen, ChevronDown, ChevronRight, CircleAlert, Command as CommandIcon, Database, DatabaseBackup, Download, FilePlus2, Link,
-  History, Image as ImageIcon, Inbox, LayoutTemplate, LibraryBig, Link2, ListChecks, LoaderCircle, Maximize2, Minimize2, MoreHorizontal,
+  History, Image as ImageIcon, Inbox, LayoutTemplate, LibraryBig, Link2, ListChecks, LoaderCircle, Maximize2, MessageSquare, Minimize2, MoreHorizontal,
   PanelLeft, Paperclip, Plug, Plus, RefreshCw, Search, Star, SunMoon, Trash2, Upload, X,
 } from 'lucide-react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type {
   Attachment, BlockTarget, Collection, CollectionRecord, CollectionSummary, CollectionView, ContentImport, CsvExport, HistoryEntry,
   ImportOriginal, ImportOutcome, Navigation,
-  MoveImpact, Page, PageInfo, PdfTarget, ProposalAction, ProposalReview, PropertyDefinition, RecordDraft, ResolvedLocation,
+  MoveImpact, Page, PageInfo, PdfTarget, ViewKind, ProposalAction, ProposalReview, PropertyDefinition, PropertyValue, RecordDraft, ResolvedLocation,
   TemplateSummary, ViewTarget, Workspace, WorkspaceOverview,
 } from './contracts';
 import { errorMessage } from './contracts';
@@ -21,7 +21,8 @@ import { HistoryDialog, Modal, MoveDialog, TrashDialog, WorkspaceDialog } from '
 import type { TrashReview } from './dialogs';
 import { PageEditor } from './editor/PageEditor';
 import { PageAppearanceDialog } from './editor/PageAppearanceDialog';
-import type { EditorHandle, InsertPosition } from './editor/PageEditor';
+import type { EditorHandle, InsertPosition, PageComment } from './editor/PageEditor';
+import { CommentText } from './editor/CommentText';
 import { BacklinkDialog, BlockPicker } from './editor/ReferenceDialogs';
 import { maxImageBytes } from './editor/rich-content';
 import { PageTree, pageTrail } from './PageTree';
@@ -31,16 +32,19 @@ import { CollectionPane } from './collections/CollectionPane';
 import { CsvDialog } from './collections/CsvDialog';
 import { RecordDialog } from './collections/dialogs';
 import { RecordPanel } from './collections/RecordPanel';
+import { autoField, computedField } from './collections/fields';
 import { ExternalRecordUpdates, useExternalRecordUpdate } from './collections/recordUpdates';
 import { PagePicker } from './search/PagePicker';
 import { useSearchIndex } from './search/useSearchIndex';
 import { ApplyTemplateDialog, ImportDialog, SaveTemplateDialog } from './library/LibraryDialogs';
 import { LibraryNavigation } from './library/LibraryNavigation';
 import { IntegrationsDialog } from './integrations/IntegrationsDialog';
+import { SyncDialog } from './sync/SyncDialog';
 import { ProposalDialog } from './integrations/ProposalDialog';
 import { BatchBar } from './organize/BatchControls';
 import type { BatchSelection } from './organize/BatchControls';
-import { EmbedPicker } from './editor/ViewEmbed';
+import { EmbedPicker, EmbeddedDatabases } from './editor/ViewEmbed';
+import type { EmbeddedDatabaseHost } from './editor/ViewEmbed';
 import { AppearanceDialog, themeOptions, useTheme } from './Appearance';
 import { CommandPalette } from './CommandPalette';
 import type { Command } from './CommandPalette';
@@ -50,9 +54,10 @@ import { prepareWindowsIme } from './windows-ime';
 type View = 'search' | 'reference' | 'workspace' | 'move' | 'archive' | 'trash' | 'backup' | 'history'
   | 'issues' | 'attachments' | 'record' | 'import' | 'importOriginal' | 'saveTemplate' | 'applyTemplate'
   | 'batchMove' | 'batchArchive' | 'csvExport' | 'integrations' | 'moveImpact' | 'proposals' | 'location'
-  | 'blockReference' | 'referenceBlock' | 'backlinks' | 'embedView' | 'commands' | 'appearance' | 'pageAppearance' | null;
+  | 'blockReference' | 'referenceBlock' | 'backlinks' | 'embedView' | 'commands' | 'appearance' | 'pageAppearance' | 'sync' | null;
 
 const emptyNavigation: Navigation = { inboxPageId: null, favorites: [], recentPages: [] };
+const macKeys = typeof navigator !== 'undefined' && navigator.userAgent.includes('Mac');
 
 interface Selection {
   page: Page;
@@ -100,6 +105,8 @@ export function App() {
   const [banner, setBanner] = useState<{ text: string; type: 'error' | 'notice'; clearOnSave?: true }>();
   const [workspaceMenu, setWorkspaceMenu] = useState(false);
   const [pageMenu, setPageMenu] = useState(false);
+  /** The open page's comments, listed from the page menu as Notion's comment view. */
+  const [pageComments, setPageComments] = useState<PageComment[]>();
   const [sidebar, setSidebar] = useState(true);
   const [focusMode, setFocusMode] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -204,6 +211,36 @@ export function App() {
     void initialize();
     return () => { alive = false; };
   }, [attempt]);
+
+  const pagesRef = useRef(pages);
+  pagesRef.current = pages;
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  useEffect(() => {
+    if (!isTauri() || !workspaceId) return;
+    let alive = true;
+    const subscription = desktop.onSyncApplied((id) => {
+      if (!alive || id !== workspaceId) return;
+      const open = selectionRef.current?.page.id;
+      const before = open ? pagesRef.current.find((page) => page.id === open)?.revision : undefined;
+      void reloadLibrary(id).then(async (items) => {
+        const after = items.find((page) => page.id === open);
+        if (!alive || !open || !after || before === undefined || after.revision === before) return;
+        if (editor.current?.hasUnsavedChanges()) {
+          setBanner({ type: 'notice', text: '当前页面已由同步更新。保存时会提示对比两个版本。' });
+          return;
+        }
+        const updated = await desktop.page(id, open);
+        if (alive && selectionRef.current?.page.id === open) selectPage(updated);
+      }).catch((error: unknown) => {
+        if (alive) setBanner({ type: 'error', text: errorMessage(error) });
+      });
+    }).catch(() => undefined);
+    return () => {
+      alive = false;
+      void subscription.then((stop) => stop?.());
+    };
+  }, [workspaceId]);
 
   const selectedId = selection?.page.id;
   useEffect(() => {
@@ -427,7 +464,8 @@ export function App() {
     const focusShortcut = (!modifier && !event.shiftKey && key === 'escape' && focusMode)
       || (modifier && event.shiftKey && key === 'f');
     const commandShortcut = modifier && event.shiftKey && key === 'p';
-    const searchShortcut = modifier && !event.shiftKey && key === 'k' && workspaceId;
+    // ⌘K, and ⌘P as in Notion's Quick Find; with text selected the editor takes ⌘K for links.
+    const searchShortcut = modifier && !event.shiftKey && (key === 'k' || key === 'p') && workspaceId;
     if (!focusShortcut && !commandShortcut && !searchShortcut) return;
     if (view || running.current || event.repeat || document.querySelector('dialog[open]')) return;
     event.preventDefault();
@@ -539,14 +577,49 @@ export function App() {
     }, false);
   }
 
-  function addPage(parent: string | null = null) {
+  /** Creates a page; a `preset` fills one property of a new record, e.g. the board column it was added in. */
+  function addPage(parent: string | null = null, preset?: { collection: string; field: string; value: PropertyValue }) {
     if (!workspaceId) return;
     setPageMenu(false);
     void perform(async () => {
-      const page = await desktop.createPage(workspaceId, parent);
+      let page = await desktop.createPage(workspaceId, parent);
       setPages((previous) => [...previous, page]);
+      if (preset) {
+        page = await writeRecordField(workspaceId, preset.collection, page.id, preset.field, preset.value);
+        recordPage(page);
+        setRecordUpdate((previous) => previous + 1);
+      }
       selectPage(page, true);
     });
+  }
+
+  /** "/页面" in the editor: create a child page, link it where the command was typed, then open it. */
+  function createSubpage() {
+    const target = editor.current;
+    const parent = current?.id;
+    if (!workspaceId || !target || !parent) return;
+    void perform(async () => {
+      const child = await desktop.createPage(workspaceId, parent);
+      setPages((previous) => [...previous, child]);
+      target.insertReference(child);
+      await target.flush();
+      selectPage(child, true);
+    }, false);
+  }
+
+  /** "/表格视图", "/日历视图" and so on: a database under this page, shown where the command was typed. */
+  function createInlineDatabase(kind: ViewKind, at: InsertPosition) {
+    const target = editor.current;
+    const parent = current?.id;
+    if (!workspaceId || !target || !parent) return;
+    void perform(async () => {
+      const { collection, page } = await desktop.createCollection(workspaceId, parent, kind);
+      const schema = await desktop.collection(workspaceId, collection.id);
+      setCollections((previous) => [...previous, collection]);
+      setPages((previous) => [...previous, page]);
+      target.insertViewEmbed({ collectionId: collection.id, viewId: schema.views[0].id }, at);
+      await target.flush();
+    }, false);
   }
 
   function addCollection(parent: string | null = null) {
@@ -708,6 +781,103 @@ export function App() {
       ]);
       setRecordDialog({ collection: schema, record, attachments: items, conflicts: 0 });
       setView('record');
+    });
+  }
+
+  /** Saves one property edited in place, keeping every other value. */
+  /** Saves one editable property of a record, keeping the others as stored. */
+  async function writeRecordField(workspace: string, collection: string, id: string, field: string | null, value: PropertyValue | undefined,
+    title?: string) {
+    const [schema, record] = await Promise.all([
+      desktop.collection(workspace, collection), desktop.record(workspace, collection, id),
+    ]);
+    const properties: RecordDraft['properties'] = {};
+    for (const item of schema.properties) {
+      if (item.type === 'relation' || autoField(item.type) || computedField(item.type)) continue;
+      const next = item.id === field ? value : record.properties[item.id];
+      if (next !== undefined) properties[item.id] = next;
+    }
+    return desktop.saveRecord(workspace, collection, id, record.revision,
+      { title: title ?? record.title, properties, schemaRevision: schema.schemaRevision });
+  }
+
+  /** Adds a record without leaving the view, so its title is typed where it appears; resolves to its id. */
+  function addRecord(collection: string, container: string, preset?: { field: string; value: PropertyValue }) {
+    return new Promise<string | undefined>((resolve) => {
+      if (!workspaceId) return resolve(undefined);
+      void perform(async () => {
+        let page = await desktop.createPage(workspaceId, container);
+        if (preset) page = await writeRecordField(workspaceId, collection, page.id, preset.field, preset.value);
+        recordPage(page);
+        setRecordUpdate((previous) => previous + 1);
+        resolve(page.id);
+      }, false).finally(() => resolve(undefined));
+    });
+  }
+
+  /** Renames a page other than the open one, keeping its content. */
+  function renamePage(id: string, title: string) {
+    if (!workspaceId) return;
+    void perform(async () => {
+      const page = await desktop.page(workspaceId, id);
+      recordPage(await desktop.savePage(workspaceId, id, page.revision, { title, blocks: page.blocks }));
+    }, false);
+  }
+
+  function renameRecord(collection: string, id: string, title: string) {
+    if (!workspaceId) return;
+    void perform(async () => {
+      const updated = await writeRecordField(workspaceId, collection, id, null, undefined, title);
+      recordPage(updated);
+      setRecordUpdate((previous) => previous + 1);
+    }, false);
+  }
+
+  /** What a database's views need from the app, for its own page and for views shown inside other pages. */
+  function collectionActions(collection: string, container: string) {
+    if (!workspaceId) return undefined;
+    return {
+      workspace: workspaceId, collectionId: collection, relationTargets, busy, recordUpdate,
+      onAdd: (preset?: { field: string; value: PropertyValue }) => addRecord(collection, container, preset),
+      onRename: (id: string, title: string) => renameRecord(collection, id, title),
+      onSaveField: (id: string, field: PropertyDefinition, value: PropertyValue | undefined) => saveRecordField(collection, id, field, value),
+      onOpen: openPage, onEdit: (id: string) => editRecord(collection, id),
+      onRecordMoved: (record: PageInfo) => {
+        recordPage(record);
+        setRecordUpdate((previous) => previous + 1);
+      },
+      onRecordsConverted: async () => {
+        try {
+          await reloadLibrary(workspaceId);
+        } catch (error) {
+          setBanner({ type: 'error', text: `属性类型已转换。刷新页面列表失败。${errorMessage(error)}` });
+        }
+      },
+      mutate: (job: () => Promise<void>) => { void perform(job, false); },
+    };
+  }
+
+  const embeddedDatabases: EmbeddedDatabaseHost = {
+    render: ({ collectionId: embedded, viewId, containerPageId, onSwitch }) => {
+      const actions = collectionActions(embedded, containerPageId);
+      if (!actions) return null;
+      return <CollectionPane {...actions} selectedView={viewId} onSwitch={onSwitch}
+        inline={{
+          title: byId.get(containerPageId)?.title || '无标题数据库',
+          onOpenDatabase: () => openEmbeddedView(containerPageId, { collectionId: embedded, viewId }),
+          onRename: (title) => renamePage(containerPageId, title),
+        }}
+        onCreate={(preset) => addPage(containerPageId, preset && { collection: embedded, ...preset })} />;
+    },
+  };
+
+  function saveRecordField(collection: string, id: string, field: PropertyDefinition, value: PropertyValue | undefined) {
+    if (!workspaceId) return;
+    void perform(async () => {
+      const updated = await writeRecordField(workspaceId, collection, id, field.id, value);
+      recordPage(updated);
+      setRecordUpdate((previous) => previous + 1);
+      if (current?.id === updated.id) selectPage(updated);
     });
   }
 
@@ -1110,16 +1280,17 @@ export function App() {
 
   function availableCommands(): Command[] {
     const commands: Command[] = [
-      { id: 'focus', name: focusMode ? '退出专注模式' : '进入专注模式', run: toggleFocusMode },
+      { id: 'focus', name: focusMode ? '退出专注模式' : '进入专注模式', shortcut: macKeys ? '⌘⇧F' : 'Ctrl+Shift+F', run: toggleFocusMode },
       { id: 'appearance', name: '外观', run: () => setView('appearance') },
       ...themeOptions.map(({ name, value }) => ({ id: `theme-${value}`, name, run: () => setTheme(value) })),
       { id: 'workspace', name: '新建工作空间', run: () => setView('workspace') },
       { id: 'backup', name: '备份与恢复', run: () => setView('backup') },
+      { id: 'sync', name: '同步', run: () => setView('sync') },
     ];
     if (!focusMode) commands.push({ id: 'sidebar', name: sidebar ? '收起侧栏' : '展开侧栏', run: () => setSidebar(!sidebar) });
     if (!workspaceId) return commands;
     commands.unshift(
-      { id: 'search', name: '搜索页面', run: () => setView('search') },
+      { id: 'search', name: '搜索页面', shortcut: macKeys ? '⌘K' : 'Ctrl+K', run: () => setView('search') },
       { id: 'new-page', name: '新建页面', run: () => addPage() },
       { id: 'new-database', name: '新建数据库', run: () => addCollection() },
       { id: 'inbox', name: '打开收集箱', run: () => enterInbox(false) },
@@ -1172,15 +1343,17 @@ export function App() {
             setWorkspaceMenu(false);
             setView('integrations');
           }}><Plug size={16} />集成与 API</button>
+          <button type="button" className="menu-item" onClick={() => { setWorkspaceMenu(false); setView('sync'); }}>
+            <RefreshCw size={16} />同步</button>
           <button type="button" className="menu-item" onClick={() => { setWorkspaceMenu(false); setView('appearance'); }}>
             <SunMoon size={16} />外观</button>
         </div>}
       </div>
 
-      <button type="button" className="sidebar-search" aria-label="搜索" aria-keyshortcuts="Control+K Meta+K"
+      <button type="button" className="sidebar-search" aria-label="搜索" aria-keyshortcuts="Control+K Meta+K Control+P Meta+P"
         disabled={!workspace || busy} onClick={() => setView('search')}>
         <Search size={17} strokeWidth={1.75} aria-hidden /><span>搜索</span>
-        <kbd aria-hidden>{navigator.userAgent.includes('Mac') ? '⌘ K' : 'Ctrl K'}</kbd>
+        <kbd aria-hidden>{macKeys ? '⌘ K' : 'Ctrl K'}</kbd>
       </button>
       <div className="sidebar-scroll">
         {workspaceId && <LibraryNavigation key={`shortcuts/${workspaceId}`} navigation={navigation} pages={byId}
@@ -1225,6 +1398,7 @@ export function App() {
           </span>) : <span>{workspace?.name ?? '知页'}</span>}
         </nav></>}
         <div className="topbar-actions">
+          <span id="editor-save-status" className="save-slot" />
           <button type="button" className="icon-button" title="命令面板" aria-label="命令面板"
             aria-keyshortcuts="Control+Shift+P Meta+Shift+P" disabled={busy} onClick={showCommands}><CommandIcon size={17} /></button>
           <button ref={focusControl} type="button" className="icon-button" title={focusMode ? '退出专注模式' : '进入专注模式'}
@@ -1248,6 +1422,10 @@ export function App() {
                 {!collectionId && <button type="button" className="menu-item" onClick={() => showTemplates('saveTemplate')}>
                   <LayoutTemplate size={17} />{ownerId ? '保存为记录模板' : '保存为页面模板'}</button>}
                 {!ownerId && <button type="button" className="menu-item" onClick={() => { setPageMenu(false); setView('move'); }}><Archive size={17} />移动页面</button>}
+                <button type="button" className="menu-item" onClick={() => {
+                  setPageMenu(false);
+                  setPageComments(editor.current?.comments() ?? []);
+                }}><MessageSquare size={17} />评论</button>
                 <button type="button" className="menu-item" onClick={() => showProposals(current.id)}>
                   <ListChecks size={17} />修改建议
                 </button>
@@ -1286,28 +1464,21 @@ export function App() {
 
       <div ref={documentScroll} id="page-content" tabIndex={-1} role="region" aria-label="页面内容" className="document-scroll"
         key={`${workspaceId ?? 'empty'}/${selection?.page.id ?? ''}`}>
-        <ExternalRecordUpdates.Provider value={externalRecordUpdate}>
+        <ExternalRecordUpdates.Provider value={externalRecordUpdate}><EmbeddedDatabases.Provider value={embeddedDatabases}>
           {selection && workspaceId ? <PageEditor key={`${workspaceId}/${selection.page.id}/${selection.epoch}`} ref={editor}
             workspace={workspaceId} page={selection.page} locked={busy} focusTitle={selection.focusTitle}
-            database={Boolean(collectionId)} searchTarget={selection.searchTarget}
-            headerContent={collectionId ? <CollectionPane workspace={workspaceId} collectionId={collectionId} relationTargets={relationTargets}
-              busy={busy} recordUpdate={recordUpdate} batch={batch} selectedView={selectedViews[collectionKey]}
+            database={Boolean(collectionId)} searchTarget={selection.searchTarget} pages={pages}
+            onCreateSubpage={collectionId ? undefined : createSubpage}
+            onCreateDatabase={collectionId ? undefined : createInlineDatabase}
+            onAppearance={showPageAppearance}
+            headerContent={collectionId ? <CollectionPane {...collectionActions(collectionId, selection.page.id)!}
+              batch={batch} selectedView={selectedViews[collectionKey]}
               onSwitch={(type) => setSelectedViews((previous) => ({ ...previous, [collectionKey]: type }))}
-              onCreate={() => addPage(selection.page.id)} onOpen={openPage} onEdit={(id) => editRecord(collectionId, id)}
-              onBeginBatch={beginBatch} onExportCsv={showCsvExport} onRecordMoved={(record) => {
-                recordPage(record);
-                setRecordUpdate((previous) => previous + 1);
-              }}
-              onRecordsConverted={async () => {
-                try {
-                  await reloadLibrary(workspaceId);
-                } catch (error) {
-                  setBanner({ type: 'error', text: `属性类型已转换。刷新页面列表失败。${errorMessage(error)}` });
-                }
-              }}
-              mutate={(job) => { void perform(job, false); }} /> : ownerId ?
+              onCreate={(preset) => addPage(selection.page.id, preset && { collection: collectionId, ...preset })}
+              onBeginBatch={beginBatch} onExportCsv={showCsvExport} /> : ownerId ?
               <RecordPanel workspace={workspaceId} collectionId={ownerId} pageId={selection.page.id} recordUpdate={recordUpdate} onOpen={openPage}
-                updatedAt={current?.updatedAt ?? selection.page.updatedAt} busy={busy} onEdit={() => editRecord(ownerId, selection.page.id)} /> : undefined}
+                updatedAt={current?.updatedAt ?? selection.page.updatedAt} busy={busy} onEdit={() => editRecord(ownerId, selection.page.id)}
+                onSaveField={(field, value) => saveRecordField(ownerId, selection.page.id, field, value)} /> : undefined}
             onSaved={recordPage} onResolved={(page) => { recordPage(page); selectPage(page); setBanner(undefined); }}
             onDiscard={() => {
               selectPage(undefined);
@@ -1325,7 +1496,7 @@ export function App() {
               <button type="button" className="primary-button" disabled={busy} onClick={() => workspace ? addPage() : setView('workspace')}>
                 <Plus size={17} />{workspace ? '新建页面' : '新建工作空间'}</button>
             </div>}
-        </ExternalRecordUpdates.Provider>
+        </EmbeddedDatabases.Provider></ExternalRecordUpdates.Provider>
       </div>
     </main>
 
@@ -1350,6 +1521,17 @@ export function App() {
           editor.current?.insertReference(page);
         }
       }} />}
+    {pageComments && <Modal title="评论" onClose={() => setPageComments(undefined)}>
+      {pageComments.length ? <ul className="comment-list">
+        {pageComments.map((comment) => <li key={comment.from}>
+          <button type="button" className="comment-list-item" onClick={() => {
+            setPageComments(undefined);
+            editor.current?.revealComment(comment.from);
+          }}><q>{comment.quote}</q><span><CommentText text={comment.text} /></span>
+            {comment.replies > 0 && <small>{comment.replies} 条回复</small>}</button>
+        </li>)}
+      </ul> : <p className="dialog-copy">这一页还没有评论。选中文字后按 {navigator.userAgent.includes('Mac') ? '⌘⇧M' : 'Ctrl+Shift+M'} 添加。</p>}
+    </Modal>}
     {view === 'referenceBlock' && referencePage && <BlockPicker key={referencePage.page.id} page={referencePage.page}
       preferred={referencePage.preferred} excluded={referencePage.page.id === current?.id ? referencePicker?.excluded : undefined}
       onClose={close} onBack={() => setView('blockReference')} onChoose={insertBlockReference} />}
@@ -1367,6 +1549,17 @@ export function App() {
         </div>
       </div>
     </Modal>}
+    {view === 'sync' && <SyncDialog workspace={workspace} pages={byId} onClose={close}
+      onOpenPage={(id) => { close(); openPage(id); }}
+      onBeforeSync={async () => { await editor.current?.flush(); }}
+      onJoined={(joined) => {
+        void perform(async () => {
+          const overview = await desktop.workspaces();
+          setWorkspaces(overview.workspaces);
+          setIssues(overview.issues);
+          await showWorkspace(joined);
+        }, false);
+      }} />}
     {view === 'integrations' && workspace && <IntegrationsDialog workspace={workspace} onClose={close}
       onProposals={() => showProposals(null)} />}
     {view === 'proposals' && workspaceId && <ProposalDialog workspace={workspaceId} pageId={proposalPage}

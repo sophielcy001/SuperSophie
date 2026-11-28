@@ -252,46 +252,6 @@ pub(super) fn progress(db: &Connection) -> Result<PdfProgress> {
     )?)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::StatementStatus;
-
-    #[test]
-    fn progress_work_is_independent_of_non_pdf_pages() {
-        let mut db = Connection::open_in_memory().unwrap();
-        let tx = db.transaction().unwrap();
-        crate::store::initialize_schema(&tx, crate::migrations::VERSION).unwrap();
-        tx.commit().unwrap();
-        let measure = || {
-            let mut statement = db
-                .prepare(&format!(
-                    "SELECT {PROGRESS_FIELDS}, (SELECT revision FROM pdf_index_state WHERE slot = 1)
-                     {LIVE_ATTACHMENTS}"
-                ))
-                .unwrap();
-            let progress = statement.query_row([], read_progress).unwrap();
-            assert_eq!(progress.pending, 0);
-            assert_eq!(progress.indexed, 0);
-            statement.get_status(StatementStatus::VmStep)
-        };
-        let empty_steps = measure();
-        db.execute_batch(
-            "WITH RECURSIVE numbers(n) AS (
-                VALUES(1) UNION ALL SELECT n + 1 FROM numbers WHERE n < 512
-             )
-             INSERT INTO pages (id, title, revision, updated_at, icon, blocks, body_text)
-             SELECT printf('page-%d', n), 'test page', 1, 0, 'file', '[]', '' FROM numbers;",
-        )
-        .unwrap();
-        let populated_steps = measure();
-        assert!(
-            populated_steps <= empty_steps + 16,
-            "PDF progress used {empty_steps} steps with no pages and {populated_steps} with 512 pages"
-        );
-    }
-}
-
 pub(crate) fn matching_entries(term: &str, arguments: &mut Arguments) -> (&'static str, String) {
     entry_filter(
         term,
@@ -406,5 +366,45 @@ impl Store {
         let status = progress(&tx)?;
         tx.commit()?;
         Ok(status)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::StatementStatus;
+
+    #[test]
+    fn progress_work_is_independent_of_non_pdf_pages() {
+        let mut db = Connection::open_in_memory().unwrap();
+        let tx = db.transaction().unwrap();
+        crate::store::initialize_schema(&tx, crate::migrations::VERSION).unwrap();
+        tx.commit().unwrap();
+        let measure = || {
+            let mut statement = db
+                .prepare(&format!(
+                    "SELECT {PROGRESS_FIELDS}, (SELECT revision FROM pdf_index_state WHERE slot = 1)
+                     {LIVE_ATTACHMENTS}"
+                ))
+                .unwrap();
+            let progress = statement.query_row([], read_progress).unwrap();
+            assert_eq!(progress.pending, 0);
+            assert_eq!(progress.indexed, 0);
+            statement.get_status(StatementStatus::VmStep)
+        };
+        let empty_steps = measure();
+        db.execute_batch(
+            "WITH RECURSIVE numbers(n) AS (
+                VALUES(1) UNION ALL SELECT n + 1 FROM numbers WHERE n < 512
+             )
+             INSERT INTO pages (id, title, revision, updated_at, icon, blocks, body_text)
+             SELECT printf('page-%d', n), 'test page', 1, 0, 'file', '[]', '' FROM numbers;",
+        )
+        .unwrap();
+        let populated_steps = measure();
+        assert!(
+            populated_steps <= empty_steps + 16,
+            "PDF progress used {empty_steps} steps with no pages and {populated_steps} with 512 pages"
+        );
     }
 }

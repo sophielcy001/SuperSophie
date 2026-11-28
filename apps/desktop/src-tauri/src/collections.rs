@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use zhiye_core::{
     Collection, CollectionSummary, CollectionView, ComputedDraft, Page, PropertyConversionPreview,
     PropertyDraft, Record, RecordDraft, RecordPage, RelationDraft, RelationTargetPage, Result,
-    ScheduleMove, ViewDraft, ViewRange, ViewSettings,
+    ScheduleMove, ScheduleResize, ViewDraft, ViewKind, ViewRange, ViewSettings,
 };
 
 #[derive(Serialize)]
@@ -28,9 +28,27 @@ pub(crate) async fn create_collection(
     app: AppHandle,
     workspace: String,
     parent_id: Option<String>,
+    view: Option<ViewKind>,
 ) -> Result<CreatedCollection> {
     run(app, move |store| {
-        let (collection, page) = store.create_collection(&workspace, parent_id.as_deref(), "")?;
+        let (collection, page) = match view {
+            Some(first) => {
+                let (collection, page) = store.create_collection_with_view(
+                    &workspace,
+                    parent_id.as_deref(),
+                    "",
+                    first,
+                )?;
+                (
+                    CollectionSummary {
+                        id: collection.id,
+                        container_page_id: collection.container_page_id,
+                    },
+                    page,
+                )
+            }
+            None => store.create_collection(&workspace, parent_id.as_deref(), "")?,
+        };
         Ok(CreatedCollection {
             collection,
             page: wire_page(store, &workspace, page)?,
@@ -209,6 +227,20 @@ pub(crate) async fn move_scheduled_record(
 ) -> Result<Page> {
     run(app, move |store| {
         let page = store.move_scheduled_record(&workspace, &collection, change)?;
+        wire_page(store, &workspace, page)
+    })
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn resize_scheduled_record(
+    app: AppHandle,
+    workspace: String,
+    collection: String,
+    change: ScheduleResize,
+) -> Result<Page> {
+    run(app, move |store| {
+        let page = store.resize_scheduled_record(&workspace, &collection, change)?;
         wire_page(store, &workspace, page)
     })
     .await

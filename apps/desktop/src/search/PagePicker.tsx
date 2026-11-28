@@ -35,6 +35,7 @@ export function PagePicker({ workspace, pages, collections, mode, busy, progress
   const searching = Boolean(term || scope.collectionId);
   const pdf = mode === 'search' ? progress?.pdf : undefined;
   const searchKey = JSON.stringify([workspace, term, scope, mode, progress?.refresh, pdf?.revision]);
+  if (cursor && cursor.key !== searchKey) setCursor(undefined);
   const offset = cursor?.key === searchKey ? cursor.offset : 0;
   const queryKey = `${searchKey}/${offset}`;
   const active = searching && result?.key === queryKey ? result : undefined;
@@ -67,7 +68,7 @@ export function PagePicker({ workspace, pages, collections, mode, busy, progress
   }
 
   const title = { search: '搜索页面', reference: '引用页面', blockReference: '选择源页面' }[mode];
-  return <Modal title={title} onClose={onClose} busy={busy}
+  return <Modal title={title} onClose={onClose} busy={busy} bare
     className="picker-dialog" initialFocus={input}>
     <div className="picker-input"><Search size={19} /><input ref={input}
       aria-label={mode === 'search' ? '搜索关键词' : mode === 'blockReference' ? '查找源页面' : '查找引用页面'} aria-controls={`${id}-results`}

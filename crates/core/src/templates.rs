@@ -564,33 +564,33 @@ fn reassign_blocks(
 ) {
     for block in blocks {
         block.id = block_ids[page_id][&block.id].clone();
-        if let Some(target) = crate::references::block_target(block) {
-            if let Some((page, target_block)) = page_ids.get(target.page_id).zip(
+        if let Some(target) = crate::references::block_target(block)
+            && let Some((page, target_block)) = page_ids.get(target.page_id).zip(
                 block_ids
                     .get(target.page_id)
                     .and_then(|ids| ids.get(target.block_id)),
-            ) {
-                block.payload = serde_json::json!({"pageId": page, "blockId": target_block});
-            }
+            )
+        {
+            block.payload = serde_json::json!({"pageId": page, "blockId": target_block});
         }
         if let Some(id) = crate::rich_blocks::attachment_reference(block)
             .and_then(|reference| attachment_ids.get(reference.id))
         {
             block.payload["attachmentId"] = Value::String(id.clone());
         }
-        if block.schema_version == 1 && matches!(block.kind.as_str(), "paragraph" | "heading") {
-            if let Some(nodes) = block
+        if block.schema_version == 1
+            && matches!(block.kind.as_str(), "paragraph" | "heading")
+            && let Some(nodes) = block
                 .payload
                 .get_mut("inline")
                 .and_then(Value::as_array_mut)
+        {
+            for item in nodes
+                .iter_mut()
+                .filter(|item| item["type"] == "pageReference")
             {
-                for item in nodes
-                    .iter_mut()
-                    .filter(|item| item["type"] == "pageReference")
-                {
-                    if let Some(id) = item["pageId"].as_str().and_then(|id| page_ids.get(id)) {
-                        item["pageId"] = Value::String(id.clone());
-                    }
+                if let Some(id) = item["pageId"].as_str().and_then(|id| page_ids.get(id)) {
+                    item["pageId"] = Value::String(id.clone());
                 }
             }
         }
