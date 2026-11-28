@@ -1,0 +1,27 @@
+[package]
+name = "zhiye-sync-server"
+description = "Self-hosted personal sync service for Zhiye"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+getrandom = "0.4"
+http-body-util = "0.1"
+hyper = { version = "1.12", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+percent-encoding = "2.3"
+postgres = "0.19"
+rusqlite = { version = "0.42", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
+tempfile = "3.27"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+uuid = { version = "1.29", features = ["v4"] }
+zhiye-sync-protocol = { path = "../sync-protocol" }
+
+[dev-dependencies]
+sha2 = "0.11"
+zhiye-core = { path = "../core" }

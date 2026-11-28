@@ -178,6 +178,7 @@ impl PageIndexer<'_, '_> {
                 .map(|image| image.alt)
                 .or_else(|| crate::rich_blocks::toggle_title(block))
                 .or_else(|| crate::rich_blocks::latex(block))
+                .or_else(|| crate::rich_blocks::bookmark(block).and_then(|(_, title)| title))
                 .or_else(|| block.payload.get("text").and_then(|value| value.as_str()))
             {
                 if !text.trim().is_empty() {

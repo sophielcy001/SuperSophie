@@ -92,6 +92,9 @@ pub(crate) fn attachment_file(block: &Block) -> Option<&str> {
 }
 
 pub(crate) fn attachment_reference(block: &Block) -> Option<AttachmentReference<'_>> {
+    if block.kind == "bookmark" {
+        return bookmark(block).and_then(|_| bookmark_image(block));
+    }
     if let Some(image) = image(block) {
         return Some(AttachmentReference {
             id: image.attachment_id,
@@ -139,6 +142,79 @@ pub(crate) fn callout_tone(block: &Block) -> Option<&str> {
     block.payload["tone"]
         .as_str()
         .filter(|tone| matches!(*tone, "note" | "tip" | "warning"))
+}
+
+/// Notion's nine inline colors, used by the `textColor` and `backgroundColor` marks.
+pub(crate) fn inline_color(color: &str) -> bool {
+    matches!(
+        color,
+        "gray" | "brown" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "red"
+    )
+}
+
+/// A personal comment on a text range, kept as an inline mark: 1 to 2,000 characters.
+pub(crate) fn comment_text(value: &serde_json::Value) -> Option<&str> {
+    value
+        .as_str()
+        .filter(|text| !text.trim().is_empty() && text.chars().count() <= 2000)
+}
+
+/// A bookmark card: a web address with an optional title typed by the user (nothing is fetched).
+pub(crate) fn bookmark(block: &Block) -> Option<(String, Option<&str>)> {
+    if block.kind != "bookmark" || !v1(block) || !block.children.is_empty() {
+        return None;
+    }
+    let fields = block.payload.as_object()?;
+    let url = web_url(block.payload["url"].as_str()?)?;
+    // Optional texts: the title (500 characters) and the page's description (1,000).
+    let text = |key: &str, limit: usize| match block.payload.get(key) {
+        None => Some(None),
+        Some(value) => value
+            .as_str()
+            .filter(|text| text.chars().count() <= limit && !text.chars().any(char::is_control))
+            .map(Some),
+    };
+    let title = text("title", 500)?;
+    let description = text("description", 1000)?;
+    // A preview image saved as this page's attachment travels with `attachmentId` and `mediaType`.
+    let image = match (
+        block.payload.get("attachmentId"),
+        block.payload.get("mediaType"),
+    ) {
+        (None, None) => 0,
+        (Some(_), Some(_)) => {
+            bookmark_image(block)?;
+            2
+        }
+        _ => return None,
+    };
+    (fields.len() == 1 + usize::from(title.is_some()) + usize::from(description.is_some()) + image)
+        .then_some((url, title))
+}
+
+/// The preview image a bookmark card keeps as an attachment of its page.
+pub(crate) fn bookmark_image(block: &Block) -> Option<AttachmentReference<'_>> {
+    if block.kind != "bookmark" || !v1(block) {
+        return None;
+    }
+    let id = block.payload["attachmentId"]
+        .as_str()
+        .filter(|id| valid_id(id))?;
+    let media_type = block.payload["mediaType"]
+        .as_str()
+        .filter(|mime| image_extension(mime).is_some())?;
+    Some(AttachmentReference {
+        id,
+        media_type: Some(media_type),
+    })
+}
+
+/// A whole paragraph or heading color: `red` for text or `red_background`.
+pub(crate) fn block_color(color: &str) -> bool {
+    let (name, background) = color
+        .strip_suffix("_background")
+        .map_or((color, false), |name| (name, true));
+    inline_color(name) && (background || !color.contains('_'))
 }
 
 pub(crate) fn latex(block: &Block) -> Option<&str> {

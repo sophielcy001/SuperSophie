@@ -836,7 +836,7 @@ fn legacy_content_is_mergeable_after_v17_upgrade_but_recovery_packages_are_separ
     assert_eq!(
         db.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .unwrap(),
-        21
+        22
     );
     assert!(
         temp.path()

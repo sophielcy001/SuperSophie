@@ -122,10 +122,11 @@ fn inbox(db: &Connection, active: bool) -> Result<Option<String>> {
             )
             .optional()?);
     }
-    // Older ZIP files predate the setting but may contain the original starter page.
+    // Older ZIP files may contain a starter inbox. Search root pages even when
+    // most of the workspace is active and has no matching inbox.
     Ok(db
         .query_row(
-            "SELECT id FROM pages WHERE parent_id IS NULL AND icon = 'inbox'
+            "SELECT id FROM pages INDEXED BY pages_parent WHERE parent_id IS NULL AND icon = 'inbox'
              AND trash_root_id IS NULL ORDER BY rowid LIMIT 1",
             [],
             |row| row.get(0),
@@ -161,12 +162,14 @@ fn read_navigation(db: &Connection) -> Result<Navigation> {
     Ok(Navigation {
         inbox_page_id: inbox(db, true)?,
         favorites: active(
-            "SELECT f.page_id FROM favorites f JOIN pages p ON f.page_id = p.id
-             WHERE p.trash_root_id IS NULL ORDER BY f.rowid DESC",
+            "SELECT f.page_id FROM favorites f
+             WHERE EXISTS (SELECT 1 FROM pages p WHERE p.id = f.page_id AND p.trash_root_id IS NULL)
+             ORDER BY f.rowid DESC",
         )?,
         recent_pages: active(
-            "SELECT r.page_id FROM recent_pages r JOIN pages p ON r.page_id = p.id
-             WHERE p.trash_root_id IS NULL ORDER BY r.rowid DESC",
+            "SELECT r.page_id FROM recent_pages r
+             WHERE EXISTS (SELECT 1 FROM pages p WHERE p.id = r.page_id AND p.trash_root_id IS NULL)
+             ORDER BY r.rowid DESC",
         )?,
     })
 }

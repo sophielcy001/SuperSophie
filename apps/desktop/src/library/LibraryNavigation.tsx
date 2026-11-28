@@ -34,14 +34,15 @@ function ShortcutList({ title, icon, pages, defaultOpen, selected, busy, onOpen 
   title: string; icon: React.ReactNode; pages: PageInfo[]; defaultOpen?: boolean;
   selected?: string; busy: boolean; onOpen(id: string): void;
 }) {
+  if (!pages.length) return null;
   return <details className="shortcut-group" open={defaultOpen}>
     <summary><span>{icon}{title}</span></summary>
     <div className="shortcut-list">
-      {pages.length ? pages.map((page) => <button key={page.id} type="button" className="sidebar-action shortcut-link"
+      {pages.map((page) => <button key={page.id} type="button" className="sidebar-action shortcut-link"
         title={page.title} aria-label={`${title} ${page.title}`} aria-current={page.id === selected ? 'page' : undefined}
         disabled={busy} onClick={() => onOpen(page.id)}>
         <PageIcon kind={page.icon} size={14} /><span>{page.title}</span>
-      </button>) : <p>暂无{title}</p>}
+      </button>)}
     </div>
   </details>;
 }

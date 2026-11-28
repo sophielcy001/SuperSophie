@@ -270,7 +270,7 @@ export interface ViewSettings {
 }
 export type TimelineZoom = 'week' | 'fortnight' | 'month';
 export type ViewLayout =
-  | { type: 'calendar'; dateField: string }
+  | { type: 'calendar'; dateField: string; endField?: string | null }
   | { type: 'gallery'; coverField: string | null }
   | { type: 'timeline'; startField: string; endField: string; zoom: TimelineZoom };
 export type ViewRange = { mode: 'between'; from: string; through: string } | { mode: 'unscheduled' };
@@ -282,6 +282,7 @@ export interface ViewDraft {
 }
 export interface ViewTarget { collectionId: string; viewId: string }
 export interface ScheduleMove { viewId: string; viewRevision: number; pageId: string; pageRevision: number; day: string }
+export interface ScheduleResize extends ScheduleMove { edge: 'start' | 'end' }
 export interface CollectionSummary { id: string; containerPageId: string }
 export interface Collection extends CollectionSummary {
   schemaRevision: number;
@@ -372,6 +373,67 @@ export interface ImportOutcome {
   notesOmitted: number;
   original?: ImportOriginal;
   unmatchedLinks?: number;
+}
+
+export interface SyncDevice {
+  server: string;
+  deviceId: string;
+  deviceName: string;
+  registeredAt: number;
+}
+
+export type SyncSkipReason = 'ORIGINAL_MISSING' | 'PARENT_SKIPPED';
+
+export interface SyncSkip {
+  pageId: string;
+  title: string;
+  reason: SyncSkipReason;
+}
+
+export interface SyncPendingItem {
+  objectId: string;
+  version: number;
+  reason: string;
+}
+
+export interface SyncStatus {
+  enabled: boolean;
+  serverUrl: string | null;
+  lastAttemptAt: number | null;
+  lastSuccessAt: number | null;
+  lastError: string | null;
+  cursor: number;
+  tracked: number;
+  unsent: number;
+  pending: SyncPendingItem[];
+  skipped: SyncSkip[];
+}
+
+export type SyncConflictKind = 'EDIT_EDIT' | 'DELETE_EDIT' | 'EDIT_DELETE' | 'PARENT_CYCLE' | 'SCHEMA_MERGED' | 'REJECTED';
+
+export interface SyncConflict {
+  pageId: string;
+  kind: SyncConflictKind;
+  copyPageId: string | null;
+}
+
+export interface SyncReport {
+  accepted: number;
+  applied: number;
+  conflicts: SyncConflict[];
+  pending: SyncPendingItem[];
+  cursor: number;
+}
+
+export interface SyncOverview {
+  device: SyncDevice | null;
+  status: SyncStatus;
+}
+
+export interface RemoteWorkspace {
+  id: string;
+  name: string;
+  local: boolean;
 }
 
 export function errorMessage(error: unknown) {

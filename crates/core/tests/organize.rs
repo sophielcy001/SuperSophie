@@ -462,6 +462,6 @@ fn csv_exports_all_filtered_rows_and_reimports_typed_values() {
         assert_eq!(row.properties.get(&note), Some(&json!(note_text)));
         assert_eq!(row.properties.get(&labels), Some(&json!([label_id])));
         assert_eq!(row.properties.get(&checked), Some(&Value::Bool(false)));
-        assert!(row.properties.get(&created).is_none());
+        assert!(!row.properties.contains_key(&created));
     }
 }

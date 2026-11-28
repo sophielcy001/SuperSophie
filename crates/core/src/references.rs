@@ -5,6 +5,7 @@ use crate::store::{ensure_active_info, read_page, read_page_info};
 use crate::{Block, Error, Result, Store};
 use rusqlite::{Connection, Transaction, params};
 use serde::Serialize;
+use serde_json::Value;
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy)]
@@ -54,17 +55,42 @@ pub(crate) fn index_page(db: &Connection, page_id: &str, blocks: &[Block]) -> Re
             insert.execute(params![page_id, block.id, target.page_id, target.block_id])?;
         }
         if let Some(items) = crate::integrations::reference_inline(block) {
-            let targets: BTreeSet<_> = items
+            let mut targets: BTreeSet<_> = items
                 .iter()
                 .filter(|item| item["type"] == "pageReference")
                 .filter_map(|item| item["pageId"].as_str())
                 .collect();
+            // Pages mentioned in comments and replies (`@[标题](page:<id>)`) list this block as a backlink.
+            targets.extend(items.iter().flat_map(comment_mentions));
             for target in targets {
                 insert.execute(params![page_id, block.id, target, ""])?;
             }
         }
     }
     Ok(())
+}
+
+/// Page IDs mentioned in the comment marks of one inline text item.
+fn comment_mentions(item: &Value) -> Vec<&str> {
+    let Some(marks) = item["marks"].as_array() else {
+        return Vec::new();
+    };
+    marks
+        .iter()
+        .filter(|mark| mark["type"] == "comment")
+        .flat_map(|mark| {
+            std::iter::once(&mark["text"])
+                .chain(mark["replies"].as_array().into_iter().flatten())
+                .filter_map(Value::as_str)
+        })
+        .flat_map(|text| {
+            text.match_indices("](page:")
+                .filter_map(move |(at, marker)| {
+                    let id = text.get(at + marker.len()..at + marker.len() + 36)?;
+                    (valid_id(id) && text[at + marker.len() + 36..].starts_with(')')).then_some(id)
+                })
+        })
+        .collect()
 }
 
 pub(crate) fn migrate(db: &Transaction<'_>) -> Result<()> {

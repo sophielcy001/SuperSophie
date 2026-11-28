@@ -9,7 +9,8 @@ use std::{
 use zhiye_core::{
     Block, IntegrationAssetUpload, IntegrationDraft, IntegrationGrant as Grant,
     IntegrationMutation as Mutation, IntegrationScope as Scope, IssuedIntegration, PageDraft,
-    PagePatch, PropertyDraft, PropertyKind, Store, integration_markdown,
+    PageExportFormat, PagePatch, PropertyDraft, PropertyKind, Store, integration_markdown,
+    render_page_export,
 };
 
 fn fixture() -> (tempfile::TempDir, Store, String) {
@@ -582,6 +583,238 @@ impl<F: FnOnce()> Read for CallbackReader<'_, F> {
         }
         self.read.read(buffer)
     }
+}
+
+#[test]
+fn notion_colors_stay_visible_and_export_as_plain_text() {
+    let (_root, store, workspace) = fixture();
+    let note = store.create_page(&workspace, None, "颜色", "file").unwrap();
+    let target = store
+        .create_page(&workspace, Some(&note.info.id), "被引用", "file")
+        .unwrap();
+    let colored = block(
+        "paragraph",
+        json!({"color": "blue_background", "inline": [
+            {"type": "pageReference", "pageId": target.info.id, "label": "被引用"},
+            {"type": "text", "text": "红字黄底", "marks": [
+                {"type": "textColor", "color": "red"}, {"type": "backgroundColor", "color": "yellow"},
+            ]},
+        ]}),
+        vec![],
+    );
+    let unknown = block(
+        "paragraph",
+        json!({"inline": [{"type": "text", "text": "未知颜色", "marks": [{"type": "textColor", "color": "#f00"}]}]}),
+        vec![],
+    );
+    store
+        .save_page(
+            &workspace,
+            &note.info.id,
+            1,
+            PageDraft {
+                title: note.info.title,
+                blocks: vec![colored, unknown],
+            },
+        )
+        .unwrap();
+    let viewer = issue(
+        &store,
+        &workspace,
+        Grant::Subtree(note.info.id.clone()),
+        &[],
+    );
+    let page = store
+        .integration_page(&workspace, &viewer.token, &note.info.id)
+        .unwrap();
+    let exported = integration_markdown(&workspace, None, &page.blocks[..1]);
+    assert!(
+        exported.markdown.contains("红字黄底"),
+        "{}",
+        exported.markdown
+    );
+    assert!(exported.losses.is_empty(), "{:?}", exported.losses);
+    // Colors outside Notion's palette are not readable inline content for integrations.
+    let all = integration_markdown(&workspace, None, &page.blocks);
+    assert!(!all.markdown.contains("未知颜色"));
+    // A colored paragraph still counts as a backlink to the page it mentions.
+    let backlinks = store.backlinks(&workspace, &target.info.id, None).unwrap();
+    assert_eq!(backlinks.items.len(), 1);
+}
+
+const PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0,
+    0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 56, 150, 102, 246, 31, 0, 5,
+    186, 2, 98, 77, 127, 216, 92, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
+#[test]
+fn notion_layout_blocks_bookmarks_and_comments_stay_readable() {
+    let (_root, store, workspace) = fixture();
+    let note = store.create_page(&workspace, None, "布局", "file").unwrap();
+    let preview = store
+        .add_image(&workspace, &note.info.id, "书签预览.png", PNG)
+        .unwrap()
+        .attachment;
+    let commented = block(
+        "paragraph",
+        json!({"inline": [{"type": "text", "text": "有评论", "marks": [{"type": "comment", "text": "补充来源", "replies": ["已补充"]}]}]}),
+        vec![],
+    );
+    let blocks = vec![
+        commented,
+        block("indentBlock", json!({}), vec![paragraph("缩进子块")]),
+        block(
+            "columnList",
+            json!({}),
+            vec![
+                block("column", json!({}), vec![paragraph("左栏内容")]),
+                block("column", json!({}), vec![paragraph("右栏内容")]),
+            ],
+        ),
+        block(
+            "bookmark",
+            json!({"url": "https://example.com/a", "title": "示例书签", "description": "网页摘要",
+                "attachmentId": preview.id, "mediaType": "image/png"}),
+            vec![],
+        ),
+    ];
+    store
+        .save_page(
+            &workspace,
+            &note.info.id,
+            1,
+            PageDraft {
+                title: note.info.title,
+                blocks,
+            },
+        )
+        .unwrap();
+    let viewer = issue(&store, &workspace, Grant::Page(note.info.id.clone()), &[]);
+    let page = store
+        .integration_page(&workspace, &viewer.token, &note.info.id)
+        .unwrap();
+    let exported = integration_markdown(&workspace, None, &page.blocks);
+    for text in [
+        "有评论",
+        "缩进子块",
+        "左栏内容",
+        "右栏内容",
+        "[示例书签](<https://example.com/a>)",
+    ] {
+        assert!(
+            exported.markdown.contains(text),
+            "{text}: {}",
+            exported.markdown
+        );
+    }
+    assert!(!exported.markdown.contains("补充来源") && !exported.markdown.contains("已补充"));
+    // Without asset access the card keeps its text but not its preview image.
+    let card = page
+        .blocks
+        .iter()
+        .find(|block| block.kind == "bookmark")
+        .unwrap();
+    assert_eq!(card.payload["title"], "示例书签");
+    assert!(card.payload.get("attachmentId").is_none() && card.payload.get("mediaType").is_none());
+    assert!(!exported.markdown.contains("不可访问"));
+}
+
+#[test]
+fn child_blocks_and_comment_mentions_stay_readable_and_link_back() {
+    let (_root, store, workspace) = fixture();
+    let note = store.create_page(&workspace, None, "子块", "file").unwrap();
+    let mentioned = store
+        .create_page(&workspace, Some(&note.info.id), "被提及", "file")
+        .unwrap();
+    let mention = format!("看看 @[被提及](page:{})", mentioned.info.id);
+    let parent = block(
+        "paragraph",
+        json!({"inline": [{"type": "text", "text": "上级段落", "marks": [
+            {"type": "comment", "text": "备注", "replies": [mention]},
+        ]}]}),
+        vec![paragraph("缩进的子块")],
+    );
+    store
+        .save_page(
+            &workspace,
+            &note.info.id,
+            1,
+            PageDraft {
+                title: note.info.title,
+                blocks: vec![parent],
+            },
+        )
+        .unwrap();
+    let viewer = issue(
+        &store,
+        &workspace,
+        Grant::Subtree(note.info.id.clone()),
+        &[],
+    );
+    let page = store
+        .integration_page(&workspace, &viewer.token, &note.info.id)
+        .unwrap();
+    let exported = integration_markdown(&workspace, None, &page.blocks);
+    assert!(
+        exported.markdown.contains("上级段落"),
+        "{}",
+        exported.markdown
+    );
+    assert!(
+        exported.markdown.contains("缩进的子块"),
+        "{}",
+        exported.markdown
+    );
+    // A page mentioned in a comment reply lists the commented block as a backlink.
+    let backlinks = store
+        .backlinks(&workspace, &mentioned.info.id, None)
+        .unwrap();
+    assert_eq!(backlinks.items.len(), 1);
+}
+
+#[test]
+fn html_export_keeps_notion_colors_and_markdown_keeps_text() {
+    let (_root, store, workspace) = fixture();
+    let note = store
+        .create_page(&workspace, None, "颜色导出", "file")
+        .unwrap();
+    let colored = block(
+        "paragraph",
+        json!({"color": "red_background", "inline": [
+            {"type": "text", "text": "提醒", "marks": [{"type": "textColor", "color": "blue"}]},
+            {"type": "text", "text": "<span data-text-color=\"red\">伪造</span>"},
+        ]}),
+        vec![],
+    );
+    store
+        .save_page(
+            &workspace,
+            &note.info.id,
+            1,
+            PageDraft {
+                title: note.info.title,
+                blocks: vec![colored],
+            },
+        )
+        .unwrap();
+    let page = store.page(&workspace, &note.info.id).unwrap();
+    let html = render_page_export(&page, &[], &workspace, PageExportFormat::Html);
+    assert!(
+        html.document
+            .contains("<span data-block-color=\"red_background\">")
+    );
+    assert!(
+        html.document
+            .contains("<span data-text-color=\"blue\">提醒</span>")
+    );
+    assert!(html.document.contains("[data-text-color=blue]"));
+    // Text that only looks like a color span stays text.
+    assert!(!html.document.contains("<span data-text-color=\"red\">"));
+    let markdown = render_page_export(&page, &[], &workspace, PageExportFormat::Markdown);
+    assert!(markdown.document.contains("提醒"));
+    assert!(!markdown.document.contains("data-block-color"));
+    assert!(!markdown.document.contains("data-text-color=\"blue\""));
 }
 
 #[test]

@@ -21,6 +21,7 @@ sha2 = "0.11"
 tempfile = "3.27"
 url = "2.5"
 uuid = { version = "1.29", features = ["v4"] }
+zhiye-sync-protocol = { path = "../sync-protocol" }
 zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

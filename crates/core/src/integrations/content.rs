@@ -27,6 +27,14 @@ use std::{
 
 const ASSET_CHUNK_SIZE: u64 = 64 * 1024;
 
+/// Visible property values, whether any were withheld, the withheld property IDs and the schema revision.
+type RecordProperties = (
+    Option<BTreeMap<String, Value>>,
+    bool,
+    Vec<String>,
+    Option<u32>,
+);
+
 #[derive(Debug, Serialize)]
 pub struct IntegrationPage {
     pub id: String,
@@ -590,16 +598,7 @@ impl<'a> Projection<'a> {
         Ok(allowed)
     }
 
-    fn properties(
-        &self,
-        page: &Page,
-        visible_parent: Option<&str>,
-    ) -> Result<(
-        Option<BTreeMap<String, Value>>,
-        bool,
-        Vec<String>,
-        Option<u32>,
-    )> {
+    fn properties(&self, page: &Page, visible_parent: Option<&str>) -> Result<RecordProperties> {
         let Some(values) = &page.properties else {
             return Ok((None, false, vec![], None));
         };
@@ -675,6 +674,20 @@ impl<'a> Projection<'a> {
                 }
                 (block.payload.clone(), false)
             }
+            // A bookmark's preview image is shown only with asset access, like other images.
+            "bookmark" if crate::rich_blocks::bookmark(block).is_some() => {
+                let mut payload = block.payload.clone();
+                if let Some(reference) = crate::rich_blocks::bookmark_image(block) {
+                    let readable = self.access.scopes.contains(&IntegrationScope::ReadAssets)
+                        && matches!(read_attachment(self.db, page_id, reference.id),
+                            Ok(attachment) if reference.matches(&attachment, page_id));
+                    if !readable && let Some(fields) = payload.as_object_mut() {
+                        fields.remove("attachmentId");
+                        fields.remove("mediaType");
+                    }
+                }
+                (payload, false)
+            }
             "attachmentImage" | "attachmentFile" => {
                 let Some(reference) = crate::rich_blocks::attachment_reference(block) else {
                     return Ok(restricted());
@@ -730,17 +743,25 @@ impl<'a> Projection<'a> {
 }
 
 pub(crate) fn reference_inline(block: &Block) -> Option<&[Value]> {
-    if block.schema_version != 1 || !block.extra.is_empty() || !block.children.is_empty() {
+    // Paragraphs and headings may hold child blocks (indented under them, as in Notion);
+    // those are read on their own.
+    if block.schema_version != 1 || !block.extra.is_empty() {
         return None;
     }
     let fields = block.payload.as_object()?;
+    // A whole-block color (Notion's "red" or "red_background") is the one optional field.
+    let color = match block.payload.get("color") {
+        None => 0,
+        Some(value) if value.as_str().is_some_and(crate::rich_blocks::block_color) => 1,
+        Some(_) => return None,
+    };
     match block.kind.as_str() {
         "heading"
-            if fields.len() == 2
+            if fields.len() == 2 + color
                 && block.payload["level"]
                     .as_u64()
                     .is_some_and(|level| (1..=3).contains(&level)) => {}
-        "paragraph" if fields.len() == 1 => {}
+        "paragraph" if fields.len() == 1 + color => {}
         _ => return None,
     };
     let items = block.payload["inline"].as_array()?;
@@ -818,6 +839,30 @@ fn valid_mark(mark: &Value) -> bool {
     };
     match mark["type"].as_str() {
         Some("bold" | "italic" | "strike" | "underline" | "code") => fields.len() == 1,
+        // A comment with an optional thread of up to 50 replies, as in Notion.
+        Some("comment") => {
+            let replies = match mark.get("replies") {
+                None => Some(0),
+                Some(Value::Array(items))
+                    if !items.is_empty()
+                        && items.len() <= 50
+                        && items
+                            .iter()
+                            .all(|item| crate::rich_blocks::comment_text(item).is_some()) =>
+                {
+                    Some(1)
+                }
+                Some(_) => None,
+            };
+            replies.is_some_and(|extra| fields.len() == 2 + extra)
+                && crate::rich_blocks::comment_text(&mark["text"]).is_some()
+        }
+        Some("textColor" | "backgroundColor") => {
+            fields.len() == 2
+                && mark["color"]
+                    .as_str()
+                    .is_some_and(crate::rich_blocks::inline_color)
+        }
         Some("link") => {
             fields.len() == 2 && mark["href"].as_str().and_then(crate::web_url).is_some()
         }
@@ -838,6 +883,20 @@ fn known_payload(block: &Block) -> bool {
         "blockquote" | "bulletList" | "listItem" | "taskList" | "table" | "tableRow" => {
             fields.is_empty()
         }
+        // Notion-style indentation (Tab) and columns hold other blocks and have no data of their own.
+        "indentBlock" | "columnList" => fields.is_empty() && !block.children.is_empty(),
+        // A column may carry its relative width from dragging the gap between columns.
+        "column" => {
+            !block.children.is_empty()
+                && fields.iter().all(|(key, value)| {
+                    // Hundredths of an even share (100); whole numbers stay exact in JavaScript.
+                    key == "width"
+                        && value
+                            .as_u64()
+                            .is_some_and(|width| (10..=1000).contains(&width))
+                })
+        }
+        "bookmark" => crate::rich_blocks::bookmark(block).is_some(),
         "codeBlock" => {
             block.children.is_empty()
                 && block.payload["text"].is_string()

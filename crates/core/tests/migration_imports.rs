@@ -386,6 +386,6 @@ fn sqlite_14_upgrade_keeps_an_existing_markdown_receipt() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .unwrap(),
-        21
+        22
     );
 }

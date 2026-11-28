@@ -35,7 +35,10 @@ pub(crate) use schema::{
     MAX_PROPERTIES, TITLE_FIELD, field_kind, normalize_values, parse_property_text,
     validate_settings,
 };
-pub use views::{GalleryCover, ScheduleMove, TimelineZoom, ViewDraft, ViewLayout, ViewRange};
+pub use views::{
+    GalleryCover, ScheduleEdge, ScheduleMove, ScheduleResize, TimelineZoom, ViewDraft, ViewLayout,
+    ViewRange,
+};
 
 use crate::model::{name, new_id};
 use crate::store::new_page;
@@ -43,6 +46,7 @@ use crate::{Error, Page, Result, Store};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use schema::{Values, build_property, validate_schema};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -141,6 +145,68 @@ impl Store {
             },
             page,
         ))
+    }
+
+    /// Creates a database whose first view is `first`, as Notion's "/table", "/calendar" and so on do.
+    /// Calendar and timeline databases start with the date properties those views need.
+    pub fn create_collection_with_view(
+        &self,
+        workspace: &str,
+        parent: Option<&str>,
+        title: &str,
+        first: ViewKind,
+    ) -> Result<(Collection, Page)> {
+        let mut db = self.connection(workspace)?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let date = |label: &str| PropertyDefinition {
+            id: new_id(),
+            name: label.into(),
+            kind: PropertyKind::Date,
+            relation: None,
+            calculation: None,
+            options: Vec::new(),
+        };
+        let mut properties = vec![PropertyDefinition {
+            id: new_id(),
+            name: "状态".into(),
+            kind: PropertyKind::Status,
+            relation: None,
+            calculation: None,
+            options: ["待处理", "进行中", "已完成"]
+                .into_iter()
+                .map(|label| PropertyOption {
+                    id: new_id(),
+                    name: label.into(),
+                })
+                .collect(),
+        }];
+        match first {
+            ViewKind::Calendar => properties.push(date("日期")),
+            ViewKind::Timeline => properties.extend([date("日期"), date("结束日期")]),
+            _ => (),
+        }
+        let (mut collection, page) = create_collection_in(&tx, parent, title, Some(properties))?;
+        let fields = &collection.properties;
+        let layout = match first {
+            ViewKind::Calendar => Some(views::ViewLayout::Calendar {
+                date_field: fields[1].id.clone(),
+                end_field: None,
+            }),
+            ViewKind::Timeline => Some(views::ViewLayout::Timeline {
+                start_field: fields[1].id.clone(),
+                end_field: fields[2].id.clone(),
+                zoom: views::TimelineZoom::default(),
+            }),
+            _ => None,
+        };
+        if let Some(index) = collection.views.iter().position(|view| view.kind == first) {
+            let mut view = collection.views.remove(index);
+            view.layout = layout;
+            collection.views.insert(0, view);
+        }
+        views::write_views(&tx, &collection.id, &collection.views)?;
+        tx.commit()?;
+        Ok((collection, page))
     }
 
     pub fn save_property(
@@ -463,4 +529,143 @@ fn advance_revision(revision: u32) -> Result<u32> {
     revision
         .checked_add(1)
         .ok_or_else(|| Error::new("REVISION_LIMIT", "数据库修订号已达上限。"))
+}
+
+/// All database definitions, including those whose container is in the trash.
+pub(crate) fn all_collections(db: &Connection) -> Result<Vec<Collection>> {
+    let mut query = db.prepare(
+        "SELECT id, container_page_id, schema_revision, properties, views FROM collections ORDER BY rowid",
+    )?;
+    Ok(query
+        .query_map([], collection_row)?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+/// Writes a database definition received from sync. The local schema
+/// revision advances, so editors that are open notice the change.
+pub(crate) fn store_synced_collection(
+    tx: &Transaction<'_>,
+    mut incoming: Collection,
+) -> Result<()> {
+    validate_schema(&incoming.properties)?;
+    for view in &incoming.views {
+        schema::validate_settings(&view.settings, &incoming.properties)?;
+    }
+    let current = tx
+        .query_row(
+            "SELECT id, container_page_id, schema_revision, properties, views FROM collections WHERE id = ?1",
+            [&incoming.id],
+            collection_row,
+        )
+        .optional()?;
+    let Some(current) = current else {
+        if for_parent(tx, Some(&incoming.container_page_id))?.is_some() {
+            return Err(Error::new(
+                "SYNC_CHANGE",
+                "该容器页面在本机已属于另一个数据库。",
+            ));
+        }
+        incoming.schema_revision = 1;
+        return insert_collection(tx, &incoming);
+    };
+    if current.container_page_id != incoming.container_page_id {
+        return Err(Error::new(
+            "SYNC_CHANGE",
+            "远端数据库的容器页面与本机不一致。",
+        ));
+    }
+    if current.properties == incoming.properties && current.views == incoming.views {
+        return Ok(());
+    }
+    let changed: Vec<&str> = incoming
+        .properties
+        .iter()
+        .filter(|field| !current.properties.contains(field))
+        .map(|field| field.id.as_str())
+        .collect();
+    incoming.schema_revision = current.schema_revision;
+    let computed = crate::integrations::derived::ComputedChange::schema(tx, &incoming, &changed)?;
+    incoming.schema_revision = advance_revision(current.schema_revision)?;
+    tx.execute(
+        "UPDATE collections SET properties = ?2, views = ?3, schema_revision = ?4 WHERE id = ?1",
+        params![
+            incoming.id,
+            serde_json::to_string(&incoming.properties)?,
+            serde_json::to_string(&incoming.views)?,
+            incoming.schema_revision
+        ],
+    )?;
+    computed::index(tx, &incoming)?;
+    crate::integrations::derived::enqueue(tx, None, computed)
+}
+
+/// Checks record values received from sync against the local definition:
+/// every field must be known and every related record present or arriving
+/// in the same batch.
+pub(crate) fn check_synced_values(
+    tx: &Transaction<'_>,
+    collection: &str,
+    values: &BTreeMap<String, serde_json::Value>,
+    arriving: &std::collections::HashSet<String>,
+) -> Result<()> {
+    let schema = read_collection_schema(tx, collection)?;
+    for (key, value) in values {
+        let field = schema
+            .properties
+            .iter()
+            .find(|field| field.id == *key)
+            .ok_or_else(|| Error::new("SYNC_SCHEMA", "记录属性所属的数据库定义尚未同步到本机。"))?;
+        if field.kind == PropertyKind::Relation {
+            for target in relations::members(Some(value))? {
+                if arriving.contains(&target) {
+                    continue;
+                }
+                let present: bool = tx.query_row(
+                    "SELECT EXISTS (SELECT 1 FROM collection_records WHERE page_id = ?1)",
+                    [&target],
+                    |row| row.get(0),
+                )?;
+                if !present {
+                    return Err(Error::new("SYNC_PARENT", "关联的记录尚未同步到本机。"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Creates the record membership for a page received from sync.
+pub(crate) fn insert_synced_record(
+    tx: &Transaction<'_>,
+    page: &Page,
+    collection: &str,
+    created_at: i64,
+) -> Result<()> {
+    insert_membership(
+        tx,
+        &RecordMembership {
+            page_id: page.info.id.clone(),
+            collection_id: collection.into(),
+            created_at,
+        },
+        page,
+    )
+}
+
+/// Creation times of all records, keyed by page.
+pub(crate) fn record_created_at(db: &Connection) -> Result<BTreeMap<String, i64>> {
+    let mut query = db.prepare("SELECT page_id, created_at FROM collection_records")?;
+    Ok(query
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+/// Relation fields of a database, for stripping values from conflict copies.
+pub(crate) fn relation_fields(db: &Connection, collection: &str) -> Result<Vec<String>> {
+    Ok(read_collection_schema(db, collection)?
+        .properties
+        .into_iter()
+        .filter(|field| field.kind == PropertyKind::Relation)
+        .map(|field| field.id)
+        .collect())
 }

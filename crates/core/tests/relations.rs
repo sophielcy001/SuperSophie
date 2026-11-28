@@ -152,7 +152,7 @@ fn paired_edges_history_templates_and_backup_preserve_stable_ids() {
     assert_eq!(
         db.pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .unwrap(),
-        21
+        22
     );
     let backup = Connection::open(
         root.path()
@@ -326,7 +326,7 @@ fn policy_hides_relation_members_and_metadata_while_permitting_scoped_deltas() {
         .integration_page(&space, &writer.token, &a.info.id)
         .unwrap();
     assert!(page.properties_restricted);
-    assert_eq!(page.restricted_property_ids, [d.id.clone()]);
+    assert_eq!(page.restricted_property_ids, std::slice::from_ref(&d.id));
     assert_eq!(page.properties.unwrap()[&d.id], json!([accessible.info.id]));
     let schema = store
         .integration_collection(&space, &writer.token, &from.id)
@@ -353,7 +353,10 @@ fn policy_hides_relation_members_and_metadata_while_permitting_scoped_deltas() {
         rows.page.items[0].properties[&d.id],
         json!([accessible.info.id])
     );
-    assert_eq!(rows.page.items[0].restricted_property_ids, [d.id.clone()]);
+    assert_eq!(
+        rows.page.items[0].restricted_property_ids,
+        std::slice::from_ref(&d.id)
+    );
     assert!(
         !serde_json::to_string(&rows)
             .unwrap()

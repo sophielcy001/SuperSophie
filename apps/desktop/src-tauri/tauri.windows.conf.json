@@ -2,9 +2,16 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": {
+      "../../../licenses/Tauri-NSIS-MIT.txt": "licenses/Tauri-NSIS-MIT.txt"
+    },
     "windows": {
       "webviewInstallMode": { "type": "skip" },
-      "nsis": { "installerHooks": "windows/installer-hooks.nsh" }
+      "nsis": {
+        "languages": ["English", "SimpChinese"],
+        "installerHooks": "windows/installer-hooks.nsh",
+        "template": "windows/installer.nsi"
+      }
     }
   }
 }

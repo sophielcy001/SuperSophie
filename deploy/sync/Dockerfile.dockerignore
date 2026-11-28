@@ -1,0 +1,10 @@
+# 只把构建同步服务所需的文件送入构建上下文。
+*
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+!apps/desktop/src-tauri/Cargo.toml
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+**/target

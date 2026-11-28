@@ -81,7 +81,11 @@ fn text_and_pdf_results_keep_their_order_across_page_boundaries() {
     store
         .finish_pdf_index(
             &workspace,
-            extracted(&file, job.generation, &[(1, "海棠候选"), (2, "海棠候选")]),
+            extracted(
+                &file,
+                job.generation,
+                &[(1, "首页锚点 海棠候选"), (2, "次页锚点 海棠候选")],
+            ),
         )
         .unwrap();
     while store.advance_search_index(&workspace).unwrap().pending > 0 {}
@@ -128,6 +132,9 @@ fn text_and_pdf_results_keep_their_order_across_page_boundaries() {
         let last = search(23, false);
         assert_eq!(last.hits.len(), 1);
         assert_eq!(last.hits[0].pdf.as_ref().unwrap().target.page_number, 2);
+        assert_eq!(next.hits[2].snippet.as_ref().unwrap().before, "首页锚点 ");
+        assert_eq!(last.hits[0].snippet.as_ref().unwrap().before, "次页锚点 ");
+        assert_eq!(last.hits[0].snippet.as_ref().unwrap().matched, term);
         assert!(search(22, true).hits.is_empty());
     }
 }
@@ -310,7 +317,7 @@ fn pdf_search_respects_attachment_scope_and_visible_cursor_state() {
             .issue_integration(
                 &workspace,
                 IntegrationDraft {
-                    name: name,
+                    name,
                     grants: vec![IntegrationGrant::Page(page.id.clone())],
                     scopes: [IntegrationScope::Read]
                         .into_iter()

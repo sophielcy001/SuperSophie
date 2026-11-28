@@ -400,6 +400,26 @@ fn inline(block: &Block, links: &Links<'_>) -> String {
                                     };
                                 format!("{marker}{pad}{text}{pad}{marker}")
                             }
+                            // Comments stay in 知页; exports keep the commented text, as in Notion.
+                            Some("comment") => part,
+                            // Markdown has no colors; like Notion's export, keep the text.
+                            // HTML keeps them as spans styled by the exported page.
+                            Some(kind @ ("textColor" | "backgroundColor")) => {
+                                match mark["color"].as_str() {
+                                    Some(color)
+                                        if links.for_html()
+                                            && crate::rich_blocks::inline_color(color) =>
+                                    {
+                                        let attribute = if kind == "textColor" {
+                                            "data-text-color"
+                                        } else {
+                                            "data-background-color"
+                                        };
+                                        format!("<span {attribute}=\"{color}\">{part}</span>")
+                                    }
+                                    _ => part,
+                                }
+                            }
                             Some("link") => {
                                 if let Some(url) = mark
                                     .get("href")
@@ -431,7 +451,27 @@ fn inline(block: &Block, links: &Links<'_>) -> String {
             }
         }
     }
-    output
+    match block.payload["color"].as_str() {
+        Some(color) if links.for_html() && crate::rich_blocks::block_color(color) => {
+            format!("<span data-block-color=\"{color}\">{output}</span>")
+        }
+        _ => output,
+    }
+}
+
+/// A paragraph or heading followed by its child blocks (Notion's indented blocks).
+fn with_children(block: &Block, text: String, links: &Links<'_>) -> String {
+    if block.children.is_empty() {
+        return text;
+    }
+    links.approximate(block, "子块在 Markdown 中按顺序跟在原块之后。");
+    let children = block
+        .children
+        .iter()
+        .map(|child| render_block(child, links))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("{text}\n\n{children}")
 }
 
 fn render_block(block: &Block, links: &Links<'_>) -> String {
@@ -524,7 +564,7 @@ fn render_block(block: &Block, links: &Links<'_>) -> String {
             }
             "> ［块引用］".into()
         }
-        "paragraph" => inline(block, links),
+        "paragraph" => with_children(block, inline(block, links), links),
         "collectionView" => {
             let Some((collection, _)) = crate::collections::views::view_target(block) else {
                 return fallback(block, links);
@@ -540,7 +580,8 @@ fn render_block(block: &Block, links: &Links<'_>) -> String {
         }
         "heading" => {
             let level = block.payload["level"].as_u64().unwrap_or(1).clamp(1, 3) as usize;
-            format!("{} {}", "#".repeat(level + 1), inline(block, links))
+            let text = format!("{} {}", "#".repeat(level + 1), inline(block, links));
+            with_children(block, text, links)
         }
         "horizontalRule" => "---".into(),
         "attachmentImage" => {
@@ -580,6 +621,26 @@ fn render_block(block: &Block, links: &Links<'_>) -> String {
                 ""
             };
             format!("{delimiter}{language}\n{body}\n{delimiter}")
+        }
+        "indentBlock" | "columnList" | "column" => {
+            links.approximate(block, "缩进与分栏在 Markdown 中按顺序展开为普通内容。");
+            block
+                .children
+                .iter()
+                .map(|child| render_block(child, links))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        }
+        "bookmark" => {
+            let Some((url, title)) = crate::rich_blocks::bookmark(block) else {
+                return fallback(block, links);
+            };
+            let url = url
+                .replace('<', "%3C")
+                .replace('>', "%3E")
+                .replace('|', "%7C");
+            let label = title.filter(|text| !text.trim().is_empty()).unwrap_or(&url);
+            format!("[{}](<{url}>)", escape(label))
         }
         "blockquote" => block
             .children

@@ -8,4 +8,5 @@ publish = false
 
 [dependencies]
 serde_json = "1"
+uuid = { version = "1.29", features = ["v4"] }
 zhiye-core = { path = "../../../crates/core" }

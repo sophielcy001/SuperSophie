@@ -10,9 +10,11 @@ import { pageTrail } from './PageTree';
 import { FieldValue, autoField } from './collections/fields';
 import { composing } from './keyboard';
 
-export function Modal({ title, children, onClose, busy = false, className = '', initialFocus }: {
+export function Modal({ title, children, onClose, busy = false, className = '', initialFocus, bare = false }: {
   title: string; children: ReactNode; onClose(): void; busy?: boolean; className?: string;
   initialFocus?: RefObject<HTMLElement | null>;
+  /** Launcher style (search, commands): no visible header; Esc or a click outside closes. */
+  bare?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -45,9 +47,9 @@ export function Modal({ title, children, onClose, busy = false, className = '', 
       const rect = event.currentTarget.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onClose();
     }}>
-    <header className="dialog-header"><h2 id={titleId}>{title}</h2>
+    {bare ? <h2 id={titleId} className="visually-hidden">{title}</h2> : <header className="dialog-header"><h2 id={titleId}>{title}</h2>
       <button type="button" className="icon-button" title="关闭" aria-label="关闭" onClick={onClose} disabled={busy}><X size={18} /></button>
-    </header>
+    </header>}
     {children}
   </dialog>;
 }

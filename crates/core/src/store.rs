@@ -659,7 +659,7 @@ fn snapshots(db: &Connection, sql: &str, parameters: impl rusqlite::Params) -> R
         .collect()
 }
 
-fn insert_page(db: &Transaction<'_>, page: &Page) -> Result<()> {
+pub(crate) fn insert_page(db: &Transaction<'_>, page: &Page) -> Result<()> {
     let info = &page.info;
     db.execute("INSERT INTO pages (id,parent_id,title,revision,updated_at,icon,trash_root_id,blocks,body_text,cover)
         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'',?9)", params![info.id, info.parent_id, info.title, info.revision,
@@ -694,7 +694,7 @@ fn sync_block_ids(db: &Transaction<'_>, page: &Page) -> Result<()> {
     Ok(())
 }
 
-fn insert_revision(db: &Transaction<'_>, page: &Page) -> Result<()> {
+pub(crate) fn insert_revision(db: &Transaction<'_>, page: &Page) -> Result<()> {
     db.execute(
         "INSERT INTO revisions (page_id,revision,snapshot) VALUES (?1,?2,?3)",
         params![

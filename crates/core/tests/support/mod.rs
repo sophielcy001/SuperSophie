@@ -3,7 +3,17 @@
 use rusqlite::Connection;
 
 #[allow(dead_code)]
+pub fn remove_v22_schema(db: &Connection) {
+    db.execute_batch(
+        "DROP TABLE sync_pending; DROP TABLE sync_outbox; DROP TABLE sync_objects;
+         DROP TABLE sync_state; PRAGMA user_version = 21;",
+    )
+    .unwrap();
+}
+
+#[allow(dead_code)]
 pub fn remove_v20_schema(db: &Connection) {
+    remove_v22_schema(db);
     db.execute_batch("ALTER TABLE integrations DROP COLUMN expires_at; PRAGMA user_version = 19;")
         .unwrap();
 }

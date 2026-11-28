@@ -424,14 +424,13 @@ fn owner_summary(row: &Row<'_>, time: i64) -> rusqlite::Result<ProposalSummary> 
 
 fn read_summary(db: &Connection, id: &str) -> Result<ProposalSummary> {
     let time = now();
-    Ok(db
-        .query_row(
-            &format!("SELECT {OWNER_SUMMARY} {OWNER_JOIN} WHERE r.id = ?1"),
-            [id],
-            |row| owner_summary(row, time),
-        )
-        .optional()?
-        .ok_or_else(missing)?)
+    db.query_row(
+        &format!("SELECT {OWNER_SUMMARY} {OWNER_JOIN} WHERE r.id = ?1"),
+        [id],
+        |row| owner_summary(row, time),
+    )
+    .optional()?
+    .ok_or_else(missing)
 }
 
 fn read_review(db: &Connection, id: &str) -> Result<ProposalReview> {

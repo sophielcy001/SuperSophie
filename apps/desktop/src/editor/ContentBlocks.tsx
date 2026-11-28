@@ -2,7 +2,7 @@
 
 import { Node } from '@tiptap/core';
 import type { Node as DocumentNode } from '@tiptap/pm/model';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import type { Decoration } from '@tiptap/pm/view';
 import { NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditorState } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/react';
@@ -41,6 +41,18 @@ function ToggleView({ node, editor, decorations, getPos, updateAttributes }: Nod
         onChange={(event) => {
           const title = toggleTitle(event.currentTarget.value);
           if (editor.isEditable && title !== undefined) updateAttributes({ title });
+        }}
+        onKeyDown={(event) => {
+          // Enter moves from the title into the fold's content, as in Notion.
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return;
+          const position = getPos();
+          if (typeof position !== 'number' || !editor.isEditable) return;
+          event.preventDefault();
+          const change = editor.state.tr;
+          if (node.attrs.collapsed === true) change.setNodeAttribute(position, 'collapsed', false);
+          change.setSelection(TextSelection.near(change.doc.resolve(position + 2)));
+          editor.view.dispatch(change);
+          editor.view.focus();
         }} />
     </div>
     <NodeViewContent id={id} className="fold-body" />

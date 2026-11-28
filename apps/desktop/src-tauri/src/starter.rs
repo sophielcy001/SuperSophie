@@ -3,6 +3,13 @@
 use serde_json::{Value, json};
 use zhiye_core::{Block, PageDraft, Result, Store};
 
+/// The starter page names the search shortcut of the platform it was created on.
+const SEARCH_HINT: &str = if cfg!(target_os = "macos") {
+    "。按 ⌘K 可搜索当前工作空间。"
+} else {
+    "。按 Ctrl+K 可搜索当前工作空间。"
+};
+
 fn block(kind: &str, payload: Value, children: Vec<Block>) -> Block {
     Block {
         id: uuid::Uuid::new_v4().to_string(),
@@ -44,7 +51,7 @@ pub fn create(store: &Store) -> Result<()> {
         ),
         heading("写下第一条笔记"),
         paragraph(
-            "点击侧栏的「新建页面」，为笔记起个名字。用工具栏插入标题、列表、待办或代码块，也可以在空白块输入 / 打开插入菜单。",
+            "点击侧栏的「新建页面」，为笔记起个名字。在空白行输入 /，或点击块左侧的 +，插入标题、列表、待办或代码块；选中文字即可设置格式。",
         ),
         block(
             "taskList",
@@ -68,7 +75,7 @@ pub fn create(store: &Store) -> Result<()> {
             json!({"inline": [
                 {"type":"text", "text":"在「笔记」下新建子页面，或从这里打开 "},
                 {"type":"pageReference", "pageId":reading.info.id, "label":"阅读笔记"},
-                {"type":"text", "text":"。按 Ctrl + K 可搜索当前工作空间。"}
+                {"type":"text", "text":SEARCH_HINT}
             ]}),
             vec![],
         ),

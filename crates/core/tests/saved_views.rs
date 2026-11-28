@@ -9,8 +9,8 @@ use std::io::Cursor;
 use zhiye_core::{
     Block, Collection, CollectionView, IntegrationDraft, IntegrationGrant as Grant,
     IntegrationMutation, IntegrationScope as Scope, Page, PageDraft, PagePatch, PropertyDraft,
-    PropertyKind, RecordDraft, ScheduleMove, Store, TimelineZoom, ViewDraft, ViewKind, ViewLayout,
-    ViewRange, ViewSettings,
+    PropertyKind, RecordDraft, ScheduleEdge, ScheduleMove, ScheduleResize, Store, TimelineZoom,
+    ViewDraft, ViewKind, ViewLayout, ViewRange, ViewSettings,
 };
 
 struct Fixture {
@@ -330,6 +330,7 @@ fn date_windows_filter_before_paging_and_moves_keep_civil_dates_and_offsets() {
         &original,
         ViewLayout::Calendar {
             date_field: time.clone(),
+            end_field: None,
         },
     );
     assert_eq!(
@@ -575,4 +576,137 @@ fn timeline_gallery_and_embeds_share_identity_and_round_trip_in_a_native_archive
         "restricted"
     );
     assert_eq!(fx.store.page(&fx.space, &note.info.id).unwrap(), note);
+}
+
+#[test]
+fn calendar_spans_end_dates_and_resizing_moves_one_edge() {
+    let root = tempfile::tempdir().unwrap();
+    let fx = Fixture::new(root.path());
+    let start = fx.field("日期", PropertyKind::Date);
+    let end = fx.field("结束日期", PropertyKind::Date);
+    let calendar = fx.set_view(
+        &fx.view(ViewKind::Calendar),
+        ViewLayout::Calendar {
+            date_field: start.clone(),
+            end_field: Some(end.clone()),
+        },
+    );
+    let list = |range: ViewRange| {
+        fx.store
+            .query_view_records(&fx.space, &fx.id, &calendar.id, 0, Some(&range))
+            .unwrap()
+    };
+    let single = fx.record("单日", &[(&start, json!("2026-11-03"))]);
+    let span = fx.record(
+        "三天",
+        &[(&start, json!("2026-11-03")), (&end, json!("2026-11-05"))],
+    );
+    // A record without an end value lasts its start day; a span shows on each of its days.
+    assert_eq!(list(between("2026-11-03", "2026-11-03")).total, 2);
+    assert_eq!(
+        list(between("2026-11-05", "2026-11-06")).records[0].id,
+        span.info.id
+    );
+    assert_eq!(list(ViewRange::Unscheduled).total, 0);
+
+    let resize = |page: &Page, edge, day: &str| {
+        fx.store.resize_scheduled_record(
+            &fx.space,
+            &fx.id,
+            ScheduleResize {
+                view_id: calendar.id.clone(),
+                view_revision: calendar.revision,
+                page_id: page.info.id.clone(),
+                page_revision: page.info.revision,
+                edge,
+                day: day.into(),
+            },
+        )
+    };
+    let longer = resize(&single, ScheduleEdge::End, "2026-11-07").unwrap();
+    let values = longer.properties.as_ref().unwrap();
+    assert_eq!(values[&start], json!("2026-11-03"));
+    assert_eq!(values[&end], json!("2026-11-07"));
+    // An edge cannot pass the other one; a span back to one day drops the end date.
+    let earlier = resize(&span, ScheduleEdge::Start, "2026-11-09").unwrap();
+    let values = earlier.properties.as_ref().unwrap();
+    assert_eq!(values[&start], json!("2026-11-05"));
+    assert!(!values.contains_key(&end));
+    // Moving keeps the length; a record without an end moves alone.
+    let moved = fx.move_to(&calendar, &longer, "2026-11-10").unwrap();
+    let values = moved.properties.as_ref().unwrap();
+    assert_eq!(values[&start], json!("2026-11-10"));
+    assert_eq!(values[&end], json!("2026-11-14"));
+    let alone = fx.move_to(&calendar, &earlier, "2026-11-01").unwrap();
+    assert_eq!(
+        alone.properties.as_ref().unwrap()[&start],
+        json!("2026-11-01")
+    );
+
+    // The end property must be a different date property of the same type.
+    let timed = fx.field("时刻", PropertyKind::DateTime);
+    let refused = fx.store.upsert_view(
+        &fx.space,
+        &fx.id,
+        ViewDraft {
+            id: Some(calendar.id.clone()),
+            revision: Some(calendar.revision),
+            name: "日历".into(),
+            kind: ViewKind::Calendar,
+            settings: calendar.settings.clone(),
+            layout: Some(ViewLayout::Calendar {
+                date_field: start.clone(),
+                end_field: Some(timed),
+            }),
+        },
+    );
+    assert_eq!(refused.unwrap_err().code, "VIEW_LAYOUT");
+}
+
+#[test]
+fn a_database_can_start_with_any_view_and_its_date_properties() {
+    let root = tempfile::tempdir().unwrap();
+    let store = Store::open(root.path()).unwrap();
+    let space = store.create_workspace("新建视图").unwrap().id;
+    let parent = store.create_page(&space, None, "笔记", "file").unwrap();
+    let (calendar, page) = store
+        .create_collection_with_view(&space, Some(&parent.info.id), "", ViewKind::Calendar)
+        .unwrap();
+    assert_eq!(
+        page.info.parent_id.as_deref(),
+        Some(parent.info.id.as_str())
+    );
+    assert_eq!(calendar.views[0].kind, ViewKind::Calendar);
+    assert_eq!(calendar.views.len(), 6);
+    let date = calendar
+        .properties
+        .iter()
+        .find(|p| p.name == "日期")
+        .unwrap();
+    assert_eq!(
+        calendar.views[0].layout,
+        Some(ViewLayout::Calendar {
+            date_field: date.id.clone(),
+            end_field: None,
+        })
+    );
+    assert_eq!(store.collection(&space, &calendar.id).unwrap(), calendar);
+
+    let (timeline, _) = store
+        .create_collection_with_view(&space, None, "计划", ViewKind::Timeline)
+        .unwrap();
+    assert!(matches!(
+        &timeline.views[0].layout,
+        Some(ViewLayout::Timeline { start_field, end_field, .. })
+            if start_field != end_field
+    ));
+    let (board, _) = store
+        .create_collection_with_view(&space, None, "", ViewKind::Board)
+        .unwrap();
+    assert_eq!(board.views[0].kind, ViewKind::Board);
+    assert_eq!(
+        board.views[0].settings.group_by.as_ref(),
+        Some(&board.properties[0].id)
+    );
+    assert_eq!(board.properties.len(), 1);
 }

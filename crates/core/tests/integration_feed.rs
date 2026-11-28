@@ -437,7 +437,7 @@ fn v7_workspace_keeps_credentials_and_sanitizes_legacy_catalog_metadata() {
         database(root.path(), &space)
             .pragma_query_value(None, "user_version", |row| row.get::<_, u32>(0))
             .unwrap(),
-        21
+        22
     );
     assert_eq!(store.history(&space, &page.info.id).unwrap(), vec![page]);
     assert!(

@@ -817,7 +817,7 @@ fn format_eleven_upgrades_and_native_zip_restores_formula_and_index() {
     let version: u32 = db
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 21);
+    assert_eq!(version, 22);
     let backup = Connection::open(
         root.path()
             .join("upgrade-backups")

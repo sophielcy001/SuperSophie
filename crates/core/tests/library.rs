@@ -505,8 +505,11 @@ fn zip_restores_record_templates_navigation_receipts_and_attachment_properties()
         nav.inbox_page_id.as_deref(),
         Some(database.container_page_id.as_str())
     );
-    assert_eq!(nav.favorites, [record.info.id.clone()]);
-    assert_eq!(nav.recent_pages, [captured.info.id, record.info.id.clone()]);
+    assert_eq!(nav.favorites, std::slice::from_ref(&record.info.id));
+    assert_eq!(
+        nav.recent_pages,
+        [captured.info.id.clone(), record.info.id.clone()]
+    );
     let duplicate = store
         .import_markdown(&restored.id, None, vec![source()])
         .unwrap()
@@ -535,14 +538,15 @@ fn zip_restores_record_templates_navigation_receipts_and_attachment_properties()
     store
         .archive_page(&restored.id, &record.info.id, 2)
         .unwrap();
-    assert!(store.navigation(&restored.id).unwrap().favorites.is_empty());
+    let nav = store.navigation(&restored.id).unwrap();
+    assert!(nav.favorites.is_empty());
+    assert_eq!(nav.recent_pages, std::slice::from_ref(&captured.info.id));
     store
         .restore_page(&restored.id, &record.info.id, 3)
         .unwrap();
-    assert_eq!(
-        store.navigation(&restored.id).unwrap().favorites,
-        [record.info.id]
-    );
+    let nav = store.navigation(&restored.id).unwrap();
+    assert_eq!(nav.favorites, std::slice::from_ref(&record.info.id));
+    assert_eq!(nav.recent_pages, [captured.info.id, record.info.id]);
 }
 
 #[test]

@@ -8,6 +8,7 @@ use zhiye_core::{
 
 mod scale;
 mod integrations;
+mod preview;
 
 fn fixture(name: &str, bytes: impl AsRef<[u8]>) -> ImportFile {
     ImportFile {
@@ -89,7 +90,17 @@ fn dispatch(
         }
         "list_collections" => json!(store.collections(space())?),
         "create_collection" => {
-            let (collection, page) = store.create_collection(space(), parent(), "")?;
+            let (collection, page) = match args.get("view").filter(|view| !view.is_null()) {
+                Some(view) => {
+                    let (collection, page) = store.create_collection_with_view(
+                        space(), parent(), "", serde_json::from_value(view.clone())?,
+                    )?;
+                    (zhiye_core::CollectionSummary {
+                        id: collection.id, container_page_id: collection.container_page_id,
+                    }, page)
+                }
+                None => store.create_collection(space(), parent(), "")?,
+            };
             json!({"collection": collection, "page": wire(page)?})
         }
         "read_collection" => json!(store.collection(space(), collection())?),
@@ -233,6 +244,19 @@ fn dispatch(
             store.copy_attachment(space(), text(args, "page"), id(), File::create(backup.with_file_name("saved-attachment.bin"))?)?;
             json!(true)
         }
+        // The suite runs offline: a fixed title stands in for the page's <title>.
+        "fetch_web_title" => {
+            zhiye_core::web_url(text(args, "href")).unwrap();
+            // The fixture image stands in for the page's og:image, saved on the bookmark's page.
+            let preview = match (args["workspace"].as_str(), args["page"].as_str(), image) {
+                (Some(workspace), Some(page), Some(path)) => {
+                    let saved = store.add_image(workspace, page, "书签预览.png", File::open(path)?)?;
+                    json!({"attachmentId": saved.attachment.id, "mediaType": saved.attachment.media_type})
+                }
+                _ => Value::Null,
+            };
+            json!({"title": "示例网页标题", "description": "离线验收用的网页摘要", "image": preview})
+        }
         "open_web_link" => {
             let url = zhiye_core::web_url(text(args, "href")).unwrap();
             std::fs::write(backup.with_file_name("link-opened.txt"), url)?;
@@ -305,6 +329,9 @@ fn dispatch(
         "move_scheduled_record" => wire(store.project_desktop_page(space(), store.move_scheduled_record(
             space(), collection(), serde_json::from_value(args["change"].clone())?,
         )?)?)?,
+        "resize_scheduled_record" => wire(store.project_desktop_page(space(), store.resize_scheduled_record(
+            space(), collection(), serde_json::from_value(args["change"].clone())?,
+        )?)?)?,
         "save_record" => wire(store.project_desktop_page(space(), store.save_record(
             space(), collection(), id(), revision(), serde_json::from_value(args["draft"].clone())?,
         )?)?)?,
@@ -359,7 +386,11 @@ fn main() {
     let args: Vec<_> = std::env::args_os().collect();
     let store = Store::open(&args[1]).unwrap();
     if store.workspaces().unwrap().is_empty() {
-        store.create_workspace("界面验收").unwrap();
+        if std::env::var_os("ZHIYE_PREVIEW_SEED").is_some() {
+            preview::seed(&store).unwrap();
+        } else {
+            store.create_workspace("界面验收").unwrap();
+        }
     }
     let mut output = std::io::stdout().lock();
     for line in std::io::stdin().lock().lines() {

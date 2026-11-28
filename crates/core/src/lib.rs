@@ -22,6 +22,7 @@ mod references;
 mod rich_blocks;
 mod search;
 mod store;
+mod sync;
 mod templates;
 mod trash;
 
@@ -38,8 +39,8 @@ pub use collections::{
     PropertyConversionPreview, PropertyConversionSample, PropertyDefinition, PropertyDraft,
     PropertyKind, PropertyOption, PropertyOptionDraft, Record, RecordDraft, RecordPage,
     RelatedRecord, RelationDefinition, RelationDraft, RelationTargetPage, RelationValue,
-    RollupFunction, ScheduleMove, SortDirection, TimelineZoom, ViewDraft, ViewFilter, ViewKind,
-    ViewLayout, ViewRange, ViewSettings, ViewSort,
+    RollupFunction, ScheduleEdge, ScheduleMove, ScheduleResize, SortDirection, TimelineZoom,
+    ViewDraft, ViewFilter, ViewKind, ViewLayout, ViewRange, ViewSettings, ViewSort,
 };
 pub use desktop_blocks::{decode_desktop_blocks, encode_desktop_blocks};
 pub use desktop_pages::DesktopPageList;
@@ -80,5 +81,7 @@ pub use search::pdf::{
 };
 pub use search::{SearchHit, SearchIndexStatus, SearchRequest, SearchResponse, SearchSnippet};
 pub use store::{Store, WorkspaceIssue, WorkspaceOverview};
+pub use sync::{SyncConflict, SyncPendingItem, SyncPush, SyncReport, SyncSkip, SyncStatus};
 pub use templates::TemplateSummary;
 pub use trash::{TrashPreview, TrashRemoval};
+pub use zhiye_sync_protocol as sync_protocol;

@@ -299,7 +299,10 @@ fn validate_schema(db: &Connection, version: u32) -> Result<()> {
     Ok(())
 }
 
-fn schema_objects(db: &Connection) -> Result<Vec<(String, String, String, Option<String>)>> {
+/// `(type, name, tbl_name, sql)` rows of `sqlite_schema`.
+type SchemaObject = (String, String, String, Option<String>);
+
+fn schema_objects(db: &Connection) -> Result<Vec<SchemaObject>> {
     Ok(db
         .prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type,name")?
         .query_map([], |row| {
@@ -326,6 +329,11 @@ fn scrub_credentials(db: &Connection, version: u32) -> Result<()> {
                 "UPDATE workspace_state SET query_cursor_key=randomblob(32) WHERE slot=1",
                 [],
             )?;
+        }
+        if version >= 22 {
+            // A recovered copy is a new workspace; it must not continue the
+            // original's sync stream or replay its unsent operations.
+            crate::sync::reset(&tx)?;
         }
         tx.commit()?;
         // Remove old digests or cursor secrets even from unused database pages.

@@ -146,7 +146,7 @@ fn find(
         let original = pdf::MATCHING_ORIGINAL;
         pdf_hits = format!(
             "UNION ALL
-             SELECT p.id, 2, NULL, e.original, a.id, a.sha256, e.page_number, a.name
+             SELECT p.id, 2, NULL, NULL, a.id, a.sha256, e.page_number, a.name, e.rowid
              FROM {pdf_entries} {original} CROSS JOIN pages p ON p.id = a.page_id
              {join}
              WHERE {pdf_condition} AND p.trash_root_id IS NULL {scope}"
@@ -183,17 +183,25 @@ fn find(
              )"
         )
     };
+    // Rank and page the PDF references before fetching their potentially large text.
     let mut statement = db.prepare(&format!(
         "WITH {matched},
-         hits(page_id, rank, block_id, original, attachment_id, sha256, page_number, name) AS (
-             SELECT m.page_id, (m.position != 0), e.block_id, e.original, NULL, NULL, NULL, NULL
+         hits(page_id, rank, block_id, original, attachment_id, sha256, page_number, name, pdf_rowid) AS (
+             SELECT m.page_id, (m.position != 0), e.block_id, e.original, NULL, NULL, NULL, NULL, NULL
              FROM matched m
              JOIN search_entries e ON e.page_id = m.page_id AND e.position = m.position
              {pdf_hits}
+         ),
+         selected AS MATERIALIZED (
+             SELECT {PAGE_COLUMNS}, h.rank, h.block_id, h.original, h.attachment_id, h.sha256,
+                    h.page_number, h.name, h.pdf_rowid
+             FROM hits h JOIN pages p ON p.id = h.page_id
+             ORDER BY h.rank, p.updated_at DESC, p.id, h.attachment_id, h.page_number LIMIT {limit} OFFSET {offset}
          )
-         SELECT {PAGE_COLUMNS}, h.block_id, h.original, h.attachment_id, h.sha256, h.page_number, h.name
-         FROM hits h JOIN pages p ON p.id = h.page_id
-         ORDER BY h.rank, p.updated_at DESC, p.id, h.attachment_id, h.page_number LIMIT {limit} OFFSET {offset}"
+         SELECT {PAGE_COLUMNS}, p.block_id, coalesce(p.original, e.original), p.attachment_id,
+                p.sha256, p.page_number, p.name
+         FROM selected p LEFT JOIN pdf_text_entries e ON e.rowid = p.pdf_rowid
+         ORDER BY p.rank, p.updated_at DESC, p.id, p.attachment_id, p.page_number"
     ))?;
     Ok(statement
         .query_map(params_from_iter(&arguments.0), |row| {

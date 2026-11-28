@@ -4,9 +4,13 @@
 
 近期优先实现和验收 Windows x64 版本。当前 Windows 安装候选为 0.50.14 Beta。
 
-[Windows 安装与验收](docs/Windows验收.md) · [Windows x64 常规安装包](artifacts/Zhiye-0.50.14-win-x64-setup.exe) · [Windows x64 离线安装包](artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe) · [Mac 安装与使用](docs/macOS使用与验收.md) · [发布说明](docs/发布说明.md)
+M6 自托管个人同步已开始：在工作空间菜单的「同步」中登记本机，即可在多台电脑间同步页面、数据库与记录，以及附件、图片和封面；模板暂只在本机。工作源码的数据格式为 22，已发布的 0.50.14 安装包是格式 21，不能打开工作源码升级过的工作空间。[自托管同步](docs/自托管同步.md)
+
+[Windows 安装与验收](docs/Windows验收.md) · [Windows x64 常规安装包](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe) · [Windows x64 离线安装包](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-offline-setup.exe) · [Mac 安装与使用](docs/macOS使用与验收.md) · [发布说明](docs/发布说明.md)
 
 0.50.14 常规包通过默认新版微软拼音的标题、正文、切页及重开验收。离线包通过缺少 WebView2 的断网首装和运行时复用。[拼音实装报告](.verify/windows-0514/复验.md) [离线实装报告](.verify/windows-offline-0514/复验.md)
+
+0.50.14 HTTPS 修复候选中的常规包使用 Windows 原生接口下载 WebView2 引导程序。覆盖安装、维护和卸载前请保存资料并正常退出知页。[修复与验收](.verify/windows-current-runtime-fallback-0514/复验.md)
 
 ## 使用数据库
 
@@ -19,7 +23,7 @@
 
 「管理属性」中的「汇总」按关联计算计数、求和、最小值、最大值或平均值。「公式」用 `prop("属性名称")` 引用同一条记录的属性。输入变化后，后台更新记录和视图中的计算结果。[公式与汇总规则](docs/计算属性.md)
 
-普通页面的编辑方式与记录页一致。在空白段输入 `/`，或点击「插入」选择块。Windows 用 `Ctrl+S` 立即保存、`Ctrl+K` 搜索。macOS 对应快捷键使用 `⌘`。页面可单独导出 Markdown。
+普通页面的编辑方式与记录页一致。在空白段输入 `/`，或点击块左侧的「+」选择块；选中文字后浮出格式条，也可在正文中按 `Alt+F10` 打开。Windows 用 `Ctrl+S` 立即保存、`Ctrl+K` 搜索。macOS 对应快捷键使用 `⌘`。页面可单独导出 Markdown。
 
 用「页面操作 → 页面外观」更换图标。封面可从本页的图片附件选择。「导入图片」会先把原件加入附件列表，点击「保存外观」应用图标和封面。要移除封面，选择「无封面」并保存，原件仍可从「附件」取回。恢复历史修订会一同恢复当时的图标与封面。导出 Markdown 时，封面图片作为正文前的相对图片链接保存。[页面数据格式](docs/数据格式.md#工作空间)
 
@@ -31,13 +35,13 @@
 
 - 指针停在正文块上时，可拖动左侧手柄调整块在本页的位置。插入线显示松开后的落点。靠近滚动区域边缘可继续移动到屏幕外的内容，按 `Esc` 取消。
 - 列表项和容器内的同级块使用右侧手柄。拖动整个列表、引用或表格时，其内容一起移动。
-- 将光标放在要移动的块里，使用工具栏的「上移块」「下移块」，或按 `Alt+Shift+↑`／`↓`。macOS 上 `Alt` 对应 `Option`。移动可单次撤销或重做，保存后搜索仍能定位到原块。
+- 将光标放在要移动的块里，按 `Alt+Shift+↑`／`↓`。macOS 上 `Alt` 对应 `Option`。移动可单次撤销或重做，保存后搜索仍能定位到原块。
 
 ## 正文图片、表格与网页链接
 
 - 用「插入 → 图片」选择本地文件，也可以向正文粘贴或拖放图片。在页面附件的图片预览里选择「插入正文」，可使用同页已保存的原件。选中正文图片后，用「图片说明」修改可检索的说明。正文支持 PNG、JPEG、GIF、WebP 和 BMP，每张上限 24 MiB。
 - 用「插入 → 表格」新建简单表格。在单元格里输入正文，用表格工具增删行列或切换表头。粘贴 HTML 表格或制表符分隔的数据可填入正文。
-- 用编辑工具的「网页链接」给选中的文字填写 HTTP 或 HTTPS 地址。按住 `Ctrl` 或 `⌘` 点击链接可从系统浏览器打开。Markdown 导出会将正文图片复制到同目录的 `zhiye-images-…` 文件夹。移动导出的文件时，同时带上图片文件夹。
+- 选中文字后，用格式条的「网页链接」填写 HTTP 或 HTTPS 地址。按住 `Ctrl` 或 `⌘` 点击链接可从系统浏览器打开。Markdown 导出会将正文图片复制到同目录的 `zhiye-images-…` 文件夹。移动导出的文件时，同时带上图片文件夹。
 
 ## 搜索和定位
 
@@ -92,6 +96,13 @@
 
 在离线机器上构建时，先在同系统与架构准备锁定依赖的缓存。[离线构建与验收](docs/离线构建与验收.md)
 
+调整界面时可以不开原生窗口，在浏览器中预览连接真实 Core 的前端，样式修改会热更新。每次启动使用新的临时数据目录和首次启动的示例内容；同步命令在预览中是模拟的。
+
+```sh
+cargo build --manifest-path .verify/m2-browser/driver/Cargo.toml
+node scripts/ui-preview.mjs 1430
+```
+
 ### macOS
 
 安装 Apple Silicon 版本时，打开 DMG 并将「知页」拖到 Applications。新版本提供中文原生菜单，支持 ⌘N 新建页面、⌘S 保存、⌘K 搜索及 ⌘⇧P 命令面板。[Mac 使用与验收](docs/macOS使用与验收.md)
@@ -108,9 +119,9 @@ npm run release:mac
 
 ### Windows x64
 
-0.50.14 Beta 提供未签名 NSIS 候选安装包，供 Windows 10 及以上 x64 实机验收。[常规安装包](artifacts/Zhiye-0.50.14-win-x64-setup.exe) [离线安装包](artifacts/Zhiye-0.50.14-win-x64-offline-setup.exe) [校验与验收步骤](docs/Windows验收.md)
+0.50.14 Beta 提供未签名 NSIS 候选安装包，供 Windows 10 及以上 x64 实机验收。[常规安装包](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-setup.exe) [离线安装包](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-win-x64-offline-setup.exe) [冻结源码](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-source.zip) [校验与验收步骤](docs/Windows验收.md)
 
-把整套文件移到测试机时，可使用包含安装包、锁定源码、合成素材及依赖缓存的验收 ZIP。[Windows 验收包](artifacts/Zhiye-0.50.14-windows-acceptance.zip) [使用说明](docs/Windows验收包.md)
+HTTPS 修复批次的 Windows 交接 ZIP 提供两种安装器、冻结源码、锁定缓存、合成素材、联网首装及断网重建回执，以及可随包重算的 A18 补测。[同批 Windows 交接 ZIP](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-windows-acceptance-handoff-verified.zip) [SHA-256](artifacts/0.50.14-windows-WebView2-HTTPS/Zhiye-0.50.14-windows-acceptance-handoff-verified.zip.sha256) [使用说明](docs/Windows验收包.md)
 
 安装 MSVC 工具链、Visual Studio C++ 构建工具、Windows SDK 和 WebView2 Runtime。PowerShell 中运行以下命令。
 
@@ -129,6 +140,7 @@ npm.cmd ci
 - [开发进度](开发进度.md) 记录已实现能力和待验收项，[开发记录](开发记录.md) 保存本轮步骤、问题和复验命令。
 - [保存故障与恢复](docs/故障恢复.md) 说明草稿导出、自动备份设置、整库恢复与升级失败处理。
 - [数据格式](docs/数据格式.md) 说明 SQLite 升级、原生备份和字段表示。
+- [自托管同步](docs/自托管同步.md) 说明 M6 同步协议、附件原件传输、Docker Compose 部署（PostgreSQL 与 HTTPS）、冲突处理和尚未完成的部分。
 - [性能验收](docs/性能验收.md) 提供固定数据、复验命令及不同入口的实测结果。
 - [Windows 验收](docs/Windows验收.md) 提供安装、升级、离线运行及 WebView2 性能复验步骤。
 - [正文内容块](docs/内容块.md) 提供 K04 的使用方法、序列化和 Markdown 导出示例。

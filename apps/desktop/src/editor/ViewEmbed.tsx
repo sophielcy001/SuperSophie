@@ -4,7 +4,8 @@ import { Node as EditorNode, mergeAttributes } from '@tiptap/core';
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react';
 import type { NodeViewProps } from '@tiptap/react';
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Table2 } from 'lucide-react';
-import { useEffect, useId, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { Collection, PropertyDefinition, RelatedRecord, ViewTarget } from '../contracts';
 import { errorMessage } from '../contracts';
 import { CollectionRecords, RecordLink } from '../collections/CollectionRecords';
@@ -23,6 +24,12 @@ interface EmbedOptions {
 
 const noFields: PropertyDefinition[] = [];
 
+/** Shows a database inside a page with all of its own views' editing, as Notion's inline databases do. */
+export interface EmbeddedDatabaseHost {
+  render(target: { collectionId: string; viewId: string; containerPageId: string; onSwitch(viewId: string): void }): ReactNode;
+}
+export const EmbeddedDatabases = createContext<EmbeddedDatabaseHost | undefined>(undefined);
+
 function useCollection(workspace: string, id: string | undefined, refresh = 0) {
   const [data, setData] = useState<{ key: string; collection?: Collection; error?: string }>();
   const key = workspace + '/' + id + '/' + refresh;
@@ -39,7 +46,25 @@ function useCollection(workspace: string, id: string | undefined, refresh = 0) {
   return data?.key === key ? data : undefined;
 }
 
-function EmbeddedView({ node, extension }: NodeViewProps) {
+function EmbeddedView(props: NodeViewProps) {
+  const host = useContext(EmbeddedDatabases);
+  const target = viewTarget(props.node.attrs);
+  const { workspace } = props.extension.options as EmbedOptions;
+  const loaded = useCollection(workspace, host ? target?.collectionId : undefined);
+  if (!host) return <ReadOnlyView {...props} />;
+  const collection = loaded?.collection;
+  return <NodeViewWrapper className="embedded-view inline-database" contentEditable={false}>
+    {!target || loaded?.error ? <p className="embedded-view-status" role="status">此视图暂不可用。</p>
+      : !collection ? <p className="embedded-view-status" role="status">正在打开数据库…</p>
+        : host.render({
+          collectionId: collection.id, viewId: target.viewId, containerPageId: collection.containerPageId,
+          onSwitch: (viewId) => { if (viewId !== target.viewId) props.updateAttributes({ viewId }); },
+        })}
+  </NodeViewWrapper>;
+}
+
+/** The view without editing, where no host is given. */
+function ReadOnlyView({ node, extension }: NodeViewProps) {
   const { workspace, openPage, openView } = extension.options as EmbedOptions;
   const target = viewTarget(node.attrs);
   const [refresh, setRefresh] = useState(0);
@@ -52,7 +77,7 @@ function EmbeddedView({ node, extension }: NodeViewProps) {
   const result = useViewRecords(workspace, collection, view, offset, schedule.range, String(refresh));
   const unavailable = !target || Boolean(loaded?.error) || Boolean(collection && !view);
   const rows = result?.data;
-  return <NodeViewWrapper className="embedded-view" contentEditable={false} data-drag-handle="">
+  return <NodeViewWrapper className="embedded-view" contentEditable={false}>
     <div className="embedded-view-heading">
       <Table2 size={16} />
       <strong>{view ? view.name ?? viewLabels[view.type] : '数据库视图'}</strong>
@@ -91,7 +116,6 @@ export const ViewEmbed = EditorNode.create<EmbedOptions>({
   name: 'collectionView',
   group: 'block',
   atom: true,
-  draggable: true,
   addOptions() { return { workspace: '', openPage() {}, openView() {} }; },
   addAttributes() {
     return {
@@ -113,7 +137,8 @@ export const ViewEmbed = EditorNode.create<EmbedOptions>({
       'data-zhiye-view': node.attrs.viewId,
     }), '数据库视图'];
   },
-  addNodeView() { return ReactNodeViewRenderer(EmbeddedView); },
+  // The database handles its own clicks, typing and drags; the block moves with the side handle.
+  addNodeView() { return ReactNodeViewRenderer(EmbeddedView, { stopEvent: () => true }); },
 });
 
 export function EmbedPicker({ workspace, collections, onClose, onChoose }: {
